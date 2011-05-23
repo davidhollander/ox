@@ -54,47 +54,47 @@ end
 -- Respond
 function Respond(c, status, body)
   local s=status_line[status]
-	local t={s}
+  local t={s}
   if c.headers then
     for k,v in pairs(c.headers) do table.insert(t,k..": "..v.."\r\n") end
   end
   table.insert(t,'\r\n')
   if type(body)=='function' then
-		core.SendSourceEnd(c, table.concat(t), body, '\r\n')
-	else
-		table.insert(t,body)
-		table.insert(t,'\r\n')
-		core.SendEnd(c,table.concat(t))
-	end
+    core.SendSourceEnd(c, table.concat(t), body, '\r\n')
+  else
+    table.insert(t,body)
+    table.insert(t,'\r\n')
+    core.SendEnd(c,table.concat(t))
+  end
 end
 
 -- Sets the Content-Length header before responding
 function RespondFixed(c, status, body)
-	local s=status_line[status]
-	local t={s}
-	if not c.headers then c.headers={} end
-	c.headers['Content-Length'] = #body
-	for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
-	table.insert(t, '\r\n')
-	table.insert(t, body)
-	table.insert(t, '\r\n')
-	core.SendEnd(c,table.concat(t))
+  local s=status_line[status]
+  local t={s}
+  if not c.headers then c.headers={} end
+  c.headers['Content-Length'] = #body
+  for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
+  table.insert(t, '\r\n')
+  table.insert(t, body)
+  table.insert(t, '\r\n')
+  core.SendEnd(c,table.concat(t))
 end
 
 local function chunkwrap(source)
-	return function()
-		local m=source()
-		return table.concat{string.format('%x',#m),'\r\n',m,'\r\n'}
-	end
+  return function()
+    local m=source()
+    return table.concat{string.format('%x',#m),'\r\n',m,'\r\n'}
+  end
 end
 -- RespondChunked, for streaming source without buffering
 function RespondChunked(c, status, body)
-	local s=status_line[status]
-	local t={s}
-	if not c.headers then c.headers={} end
-	c.headers['Transfer-Encoding'] = 'Chunked'
-	for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
-	core.SendSourceEnd(c, table.concat(t), chunkwrap(source), '\r\n')
+  local s=status_line[status]
+  local t={s}
+  if not c.headers then c.headers={} end
+  c.headers['Transfer-Encoding'] = 'Chunked'
+  for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
+  core.SendSourceEnd(c, table.concat(t), chunkwrap(source), '\r\n')
 end
 
 -- Server
@@ -125,10 +125,10 @@ function Server(port,views,mware)
       local data=c.fd:recv(1024)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 then
-				c.fd:close()
-				return 'close'
+        c.fd:close()
+        return 'close'
       elseif done then
-				if mware then for i=1,#mware do mware[i](c) end end
+        if mware then for i=1,#mware do mware[i](c) end end
         local capture
         for path,fn in pairs(views[parser:method()]) do
           capture=req.path:match(path)
@@ -156,24 +156,24 @@ function Client(host, port, method, url, headers, cb)
     table.insert(t, '\r\n')
     local req=table.concat(t)
     local res={headers={},body={}}
-		local done=false
+    local done=false
     local parser=lhp.response{
       on_header=function(key,val) res.headers[key]=val end,
       on_body=function(chunk,e) print('onbody',chunk,e) table.insert(res.body,chunk) end,
       on_message_complete=function() print('msg complete') done=true end,
-			on_headers_complete=function() print('headers complete') end,
+      on_headers_complete=function() print('headers complete') end,
     }
     core.SendReq(c,req)
     core.OnRead(c,function(c)
       local data=c.fd:recv(8192)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 or done then
-				res.status=parser:status_code();
-				res.body=table.concat(res.body)
-				c.fd:close()
-				cb(res)
-				return 'close'
-			end
+        res.status=parser:status_code();
+        res.body=table.concat(res.body)
+        c.fd:close()
+        cb(res)
+        return 'close'
+      end
     end)
   end)
 end

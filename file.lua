@@ -23,10 +23,10 @@ function SourceFile(file)
     if not file then return nil end
     local chunk=file:read(8192)
     if not chunk or chunk=='' then
-			file:close()
-			file=nil
-			return nil
-		end
+      file:close()
+      file=nil
+      return nil
+    end
     return chunk
   end
 end
@@ -72,42 +72,42 @@ end
 -- CacheSingle
 -- Cache a static response into memory using a file
 function CacheSingle(path)
-	local f=nixio.open(path)
-	if not f then print("Could not cache: "..path) end
-	local stats=f:stat()
-	local body=f:readall()
-	local res=table.concat {
-		http.status_line[200],
-		'Content-Length: ',#body,'\r\n',
-		'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
-		"Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", stats.mtime),'\r\n',
-		'\r\n',body,'\r\n'
-	}
-	f:close()
-	body=nil f=nil stats=nil
-	return function(c) core.SendEnd(c, res) end
+  local f=nixio.open(path)
+  if not f then print("Could not cache: "..path) end
+  local stats=f:stat()
+  local body=f:readall()
+  local res=table.concat {
+    http.status_line[200],
+    'Content-Length: ',#body,'\r\n',
+    'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
+    "Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", stats.mtime),'\r\n',
+    '\r\n',body,'\r\n'
+  }
+  f:close()
+  body=nil f=nil stats=nil
+  return function(c) core.SendEnd(c, res) end
 end	
 -- ServeSingle
 -- Checks if file has changed each request and recaches
 function ServeSingle(path)
-	local res
-	local mtime
-	local function cache(f) 
-		res=table.concat {
-			http.status_line[200],
-			"Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", mtime),'\r\n',
-			'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
-			'\r\n',
-			f:readall(),
-			'\r\n'
-		}
-	end
-	local function check()
-		local f=nixio.open(path)
-		local d=f:stat().mtime
-		if d~=mtime then mtime=d; cache(f) end
-	end
-	return function(c) check() core.SendEnd(c, res) end
+  local res
+  local mtime
+  local function cache(f) 
+    res=table.concat {
+      http.status_line[200],
+      "Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", mtime),'\r\n',
+      'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
+      '\r\n',
+      f:readall(),
+      '\r\n'
+    }
+  end
+  local function check()
+    local f=nixio.open(path)
+    local d=f:stat().mtime
+    if d~=mtime then mtime=d; cache(f) end
+  end
+  return function(c) check() core.SendEnd(c, res) end
 end
 
 
@@ -119,21 +119,21 @@ end
 -- Serves files from a directory without cacheing
 -- Only supports 200 and 404, Content-Type
 function SimpleHandler(dir)
-	local dir=dir:match('^(.+)/?$')
-	return function(c, path)
-		if path:match('%.%.') then http.Respond(c, 404) end
-		f=nixio.open(dir..'/'..path)
-		if not f then return http.Respond(c, 404) end
+  local dir=dir:match('^(.+)/?$')
+  return function(c, path)
+    if path:match('%.%.') then http.Respond(c, 404) end
+    f=nixio.open(dir..'/'..path)
+    if not f then return http.Respond(c, 404) end
     local ext=path:match('%.(%w+)$')
     local mime=mimetypes[ext] or 'application/octet-stream'
-		print(mime,ext)
+    print(mime,ext)
     http.SetHeader(c,'Content-Type',mime)
-		local stats=f:stat()
+    local stats=f:stat()
     http.SetHeader(c,'Last-Modified',os.date("!%a, %d %b %Y %H:%M:%S GMT",
-			stats.mtime))
-		http.SetHeader(c,'Content-Length',stats.size)
-		http.Respond(c,200,SourceFile(f))
-	end
+    stats.mtime))
+    http.SetHeader(c,'Content-Length',stats.size)
+    http.Respond(c,200,SourceFile(f))
+  end
 end
 
 --File Handler
@@ -149,10 +149,10 @@ function FileHandler(dir,cache)
     local ext=path:match('%.(%w+)$')
     local mime=mimetypes[ext] or 'application/octet-stream'
     http.SetHeader(c,'Content-Type',mime)
-    
-		local stats=f:stat()
+
+    local stats=f:stat()
     http.SetHeader(c,'Last-modified',os.date("!%a, %d %b %Y %H:%M:%S GMT",
-      stats.mtime))
+    stats.mtime))
     --Negotiate response type
     local rangeread=partialseek(f,http.GetHeader(c,'Range'))
     local status=rangeread and 206 or 200
@@ -161,11 +161,11 @@ function FileHandler(dir,cache)
     --[[Negotiate response encoding
     local body
     if c.req.header['Accept-Encoding']:match('gzip') then
-      body=Compress(source)
-      http.SetHeader('Content-Encoding','gzip')
+    body=Compress(source)
+    http.SetHeader('Content-Encoding','gzip')
     else body=source end]]
     body=source
-       
+
     --Respond
     http.SendHeaders(c,status)
     core.SendSource(c,source)

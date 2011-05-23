@@ -35,19 +35,19 @@ end
 -- call [fn] in [sec] seconds.
 -- Low accuracy. Might add something using nixio.ctime in future if needed.
 function Trigger(fn, sec)
-	table.insert(timers,{time=time+sec,fn=fn})
-	table.sort(timers, function(a,b) return a.time<b.time end)
+  table.insert(timers,{time=time+sec,fn=fn})
+  table.sort(timers, function(a,b) return a.time<b.time end)
 end
 
 -- Tick
 -- Fire timers if needed
 -- Popping from beginning is innefficient will prob reimplement
 local function tick()
-	for i=1,#timers do
-		local t=timers[1]
-		if t.time>=time then break
-		else t.fn(); table.remove(timers,1) end
-	end
+  for i=1,#timers do
+    local t=timers[1]
+    if t.time>=time then break
+    else t.fn(); table.remove(timers,1) end
+  end
 end
 
 -- OnRead, OnWrite, StopRead, StopWrite
@@ -85,19 +85,19 @@ end
 -- SendReq
 -- Send a message until done, checking for disconnect.
 function SendReq(c, msg, cb)
-	local n=0
-	OnWrite(c, function(c)
-		local m = c.fd:send(msg, n)
-		if not m then
-			if cb then cb(false) end
-			c.fd:close() return 'close'
-		end
-		n=n+m
-		if n==#msg then
-			StopWrite(c)
-			if cb then cb(c) end
-		end
-	end)
+  local n=0
+  OnWrite(c, function(c)
+    local m = c.fd:send(msg, n)
+    if not m then
+      if cb then cb(false) end
+      c.fd:close() return 'close'
+    end
+    n=n+m
+    if n==#msg then
+      StopWrite(c)
+      if cb then cb(c) end
+    end
+  end)
 end
 
 -- SendSourceEnd
@@ -107,34 +107,34 @@ function SendSourceEnd(c, head, source, foot)
   local n=0
   local msg=head or source()
   OnWrite(c, function(c)
-		n=n+c.fd:send(msg,n)
-		if n==#msg then
-			n=0
-			msg=source()
-			if not msg then
-				c.fd:send(foot or '')
-				c.fd:close()
-				return 'close'
-			end
-		end
-	end)
+    n=n+c.fd:send(msg,n)
+    if n==#msg then
+      n=0
+      msg=source()
+      if not msg then
+        c.fd:send(foot or '')
+        c.fd:close()
+        return 'close'
+      end
+    end
+  end)
 end
 
 -- BufferPipe
 -- Buffer the ouput from a pipe, then passes to [cb]
 function BufferPipe(cb)
-	local out={}
-	return function (c)
-		while true do
-			local data = c.fd:read(8192)
-			if data then table.insert(out,data)
-			else
-				c.fd:close()
-				cb(table.concat(out))
-				return 'close'
-			end
-		end
-	end
+  local out={}
+  return function (c)
+    while true do
+      local data = c.fd:read(8192)
+      if data then table.insert(out,data)
+      else
+        c.fd:close()
+        cb(table.concat(out))
+        return 'close'
+      end
+    end
+  end
 end
 
 -- SendQueue
@@ -165,7 +165,7 @@ end
 -- Result is a buffered string
 function CallFork(fn, cb)
   local pipeout,pipein=nixio.pipe()
-	print(pipeout:setblocking(false))
+  print(pipeout:setblocking(false))
   local pid=nixio.fork()
   if pid==0 then
     pipein:write(tostring(fn()))
@@ -176,9 +176,9 @@ function CallFork(fn, cb)
       fd=pipeout,
       events=EV_IN,
       revents=0,
-			accept_time=time,
+      accept_time=time,
       read=BufferPipe(cb)
-		})
+    })
   end
 end
 
@@ -187,29 +187,29 @@ end
 -- If [host] is not an ip address, fork and wait for DNS loopup, then cache ip
 local host_cache={}
 function Connect(host, port, cb)
-	
-	local function _connect(ip, port, cb)
-		local sock = nixio.socket('inet','stream')
-		sock:setblocking(false)
-		sock:connect(ip, port)
-		local c={fd=sock,events=0,revents=0}
-		table.insert(contexts, c)
-		cb(c)
-		return true
-	end
 
-	local ip = host:match('^%d+\.%d+\.%d+\.%d+$') or host_cache[host]
+  local function _connect(ip, port, cb)
+    local sock = nixio.socket('inet','stream')
+    sock:setblocking(false)
+    sock:connect(ip, port)
+    local c={fd=sock,events=0,revents=0}
+    table.insert(contexts, c)
+    cb(c)
+    return true
+  end
+
+  local ip = host:match('^%d+\.%d+\.%d+\.%d+$') or host_cache[host]
   if ip then return _connect(ip, port, cb)
-	else
-		CallFork(function()
-				local x = nixio.getaddrinfo(host, 'inet', port)
-				return x and x[1].address or nil
-			end,
-			function(ip)
-				host_cache[host]=ip
-				_connect(ip, port, cb)
-		end)
-	end
+  else
+    CallFork(function()
+      local x = nixio.getaddrinfo(host, 'inet', port)
+      return x and x[1].address or nil
+    end,
+    function(ip)
+      host_cache[host]=ip
+      _connect(ip, port, cb)
+    end)
+  end
 end
 
 -- Serve
@@ -224,15 +224,15 @@ function Serve(port, cb)
       events = EV_IN,
       revents = 0,
       read = function(server)
-				while true do
-					local sock = server.fd:accept()
-					if sock then
-						local c={fd=sock,events=0,revents=0,accept_time=time}
-						cb(c)
-						table.insert(contexts,c)
-					else break end
-				end
-			end
+        while true do
+          local sock = server.fd:accept()
+          if sock then
+            local c={fd=sock,events=0,revents=0,accept_time=time}
+            cb(c)
+            table.insert(contexts,c)
+          else break end
+        end
+      end
     })
     return true
   else return false end
@@ -241,19 +241,19 @@ end
 -- Expires
 -- Close accepted connections older than [timeout]
 function Expire(timeout)
-	local old = time - timeout
-	local oldcontexts=contexts
-	contexts={}
-	local brk=false
-	for i=1,#oldcontexts do
-		if brk then contexts[i]=oldcontexts[i]
-		else
-			local c=oldcontexts[i]
-			if not c.accept_time then table.insert(contexts,c)
-			elseif c.accept_time<old then c.fd:close(); print('expired')
-			else brk=true; table.insert(contexts,c) end
-		end
-	end
+  local old = time - timeout
+  local oldcontexts=contexts
+  contexts={}
+  local brk=false
+  for i=1,#oldcontexts do
+    if brk then contexts[i]=oldcontexts[i]
+    else
+      local c=oldcontexts[i]
+      if not c.accept_time then table.insert(contexts,c)
+      elseif c.accept_time<old then c.fd:close(); print('expired')
+      else brk=true; table.insert(contexts,c) end
+    end
+  end
 end
 
 -- Stop: break server loop
@@ -264,7 +264,7 @@ function Stop() on=false end
 function Loop()
   while on do
     local stat, code = nixio.poll(contexts,500)
-		time=os.time()
+    time=os.time()
     if stat and stat>0 then
       local oldcontexts=contexts
       contexts={}
@@ -279,6 +279,6 @@ function Loop()
         end
       end
     end
-		Expire(20)
+    Expire(20)
   end
 end
