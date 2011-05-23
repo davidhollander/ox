@@ -1,0 +1,24 @@
+#!/bin/bash
+# Install all dependencies on Ubuntu
+
+# luarocks is used for fetching modules
+sudo apt-get install build-essential lua5.1 luarocks
+
+# The lua libraries used are nixio, json4lua, and lua-http-parser
+sudo luarocks install nixio
+sudo luarocks install json4lua
+sudo luarocks install lua-http-parser
+
+# as well as lua-zlib for compression, which does not yet have a rock file
+# The dependencies for building luzzlib are cmake and the zlib headers
+sudo apt-get install cmake zlib1g-dev
+git clone https://github.com/brimworks/lua-zlib.git
+cd lua-zlib
+cmake .
+make
+sudo make install
+cd ..
+yes | rm -r lua-zlib
+
+# In the future, nixio\lua-http-parser\lua-zlib might be replaced by FFI bindings
+# As the only implementation I am targetting is LuaJIT

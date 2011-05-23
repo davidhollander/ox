@@ -1,0 +1,10 @@
+#!/bin/bash
+# Ubuntu Install
+# This is a simple script I use to recopy my development files
+# into my system lua modules directory when I make changes.
+
+echo "uninstall old"
+sudo rm -r /usr/local/share/lua/5.1/ox
+sudo mkdir /usr/local/share/lua/5.1/ox
+echo "copying new"
+sudo cp *.lua /usr/local/share/lua/5.1/ox

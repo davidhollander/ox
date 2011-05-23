@@ -1,0 +1,15 @@
+<html>
+    <head><title>Echo</title></head>
+    <body>
+        {% for k,v in pairs(getfenv()) do %}
+        <h1>{{k}}</h1>
+        {% if type(v)=='table' then %}
+        <ul>
+            {% for k2,v2 in pairs(v) do %}
+            <li>{{k2}}: {{tostring(v2)}}</li>
+            {% end %}
+        </ul>
+        {% else %} {{tostring(v)}} {% end %}
+        {% end %}
+    </body>
+</html>
