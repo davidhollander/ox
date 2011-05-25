@@ -20,19 +20,31 @@ status_line={
 }
 GET,PUT,POST,DELETE={},{},{},{}
 
-function EncodeForm(t)
-  local out={}
-  for k,v in pairs(t) do
-    table.insert(out,k:gsub(k,' ','%+')..'='..v:gsub(k,' ','%+'))
-  end
-  return table.concat(out,'&')
+-- url_decode, url_encode
+-- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
+function url_decode(str)
+  if not str then return nil end
+  str = string.gsub (str, "+", " ")
+  str = string.gsub (str, "%%(%x%x)", function(h) return string.char(tonumber(h,16)) end)
+  str = string.gsub (str, "\r\n", "\n")
+  return str
 end
-function DecodeForm(str)
+function url_encode(str)
+  if not str then return nil end
+  str = string.gsub (str, "\n", "\r\n")
+  str = string.gsub (str, "([^%w ])",
+        function (c) return string.format ("%%%02X", string.byte(c)) end)
+  str = string.gsub (str, " ", "+")
+  return str
+end
+
+-- qs_decode
+-- Parses query strings and forms
+function qs_decode(qstr)
   local t={}
-  local f=str:gmatch('[^&]+')
-  for s in f do
-    local k,v=s:match('([^=]+)=?([^=]*)')
-    t[k]=v or true
+  for k,v in string.gmatch(qstr, "([^&=]+)=([^&=]*)&?") do
+    if #v>0 then t[url_decode(k)] = url_decode(v)
+    else t[url_decode(k)] = true end
   end
   return t
 end
@@ -109,11 +121,11 @@ function Server(port,views,mware)
       on_url=function(url) req.url=url end,
       on_path=function(path) req.path=path end,
       on_header=function(key,val) req.headers[key]=val end,
-      on_query_string=function(qstr) req.qstr=DecodeForm(qstr) end,
+      on_query_string=function(qstr) req.qstr=qs_decode(qstr) end,
       on_fragment=function(frag) req.frag=frag end,
-      on_body=function(body) table.insert(formbuffer,body) end,
+      on_body=function(body) table.insert(formbuffer, body) end,
       on_message_complete=function()
-        req.data=DecodeForm(table.concat(formbuffer))
+        req.data=qs_decode(table.concat(formbuffer))
         done=true
       end,
       on_headers_complete=function()
