@@ -5,7 +5,8 @@
 local core=require'ox.core'
 module('ox.rpc',package.seeall)
 
-parse_call=function(cb)
+
+function parse_call(cb)
   local prev=false
   return function(chunk)
     if not prev then
@@ -51,7 +52,7 @@ function Connect(host,port,views)
     core.OnRead(c,function(c)
       local data=thread.fd:recv(1024)
       if data==false then return
-      elseif data==nil or data=='' then return 'close'
+      elseif data==nil or data=='' then c.fd:close() return 'close'
       else parser(data) end
     end)
   end)
@@ -61,12 +62,14 @@ function Server(port,views)
   local function receive(chunk1,chunk2)
     local v=views[chunk1]
     if not v then
-  return core.Serve(port,function(thread)
+    end
+  end
+  return core.Serve(port, function(c)
     local parser=parse_transport(parse_call(receive))
-    OnRead(thread,function(thread)
-      local data=thread.fd:recv(1024)
-      if data==false then return 
-      elseif data==nil or data=='' then return 'close'
+    OnRead(c, function(c)
+      local data = c.fd:recv(8192)
+      if data == false then return 
+      elseif data == nil or data=='' then c.fd:close() return 'close'
       else parser(data) end
     end)
   end)

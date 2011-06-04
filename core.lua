@@ -14,7 +14,7 @@ local contexts={}
 local on=true
 local timers={}
 
-module('ox.core',package.seeall)
+module(... or 'ox.core',package.seeall)
 
 time = os.time()
 Log = print
@@ -165,7 +165,7 @@ end
 -- Result is a buffered string
 function CallFork(fn, cb)
   local pipeout,pipein=nixio.pipe()
-  print(pipeout:setblocking(false))
+  pipeout:setblocking(false)
   local pid=nixio.fork()
   if pid==0 then
     pipein:write(tostring(fn()))

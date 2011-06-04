@@ -1,0 +1,10 @@
+priority
+========
+
+
+scratch
+=======
+add CSRF token generation for javascript
+add tests corresponding to same filenames
+add RPC that mimics simplified RESTful HTTP
+add RPC with method tables GET, PUT, NODE

@@ -1,6 +1,6 @@
-module('ox.mime',package.seeall)
+module(... or 'ox',package.seeall)
 
-types = {
+mime = {
 
 -----------------------------------------------------------------------------
 -- Xavante MIME types

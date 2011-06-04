@@ -6,7 +6,7 @@
 
 local core=require 'ox.core'
 local lhp=require 'http.parser'
-module('ox.http',package.seeall)
+module(... or 'ox.http',package.seeall)
 
 status_line={
   [200]="HTTP/1.1 200 OK\r\n",
@@ -50,12 +50,13 @@ function qs_decode(qstr)
 end
 
 function htmlquote(text)
-  text=text:gsub("&","&amp;")
-  text=text:gsub("<","&lt;")
-  text=text:gsub(">","&gt;")
-  text=text:gsub("'","&#39;")
-  text=text:gsub('"',"&quot;")
-  return text
+  return text:gsub("[&<>'\"]",{
+    ['&']="&amp;",
+    ['<']="&lt;",
+    ['>']="&gt;",
+    ["'"]="&#39;",
+    ['"']="&quot;"
+  })
 end
 
 function SetHeader(c, key, value)
@@ -159,7 +160,7 @@ end
 -- Client
 -- Make an asynchronous HTTP Request and buffer response body
 -- on_message_complete callback is not getting triggered for some reason
-function Client(host, port, method, url, headers, cb)
+function Client(host, port, method, url, headers, body, cb)
   return core.Connect(host, port, function(c)
     local t={method,' ',url," HTTP/1.1\r\n"}
     for k,v in pairs(headers) do
@@ -188,4 +189,27 @@ function Client(host, port, method, url, headers, cb)
       end
     end)
   end)
+end
+
+-- IntClient
+-- Bypass http parsing to make an internal request
+-- Maybe make connection an object to bypass Respond methods\faking a file descriptor
+function IntClient(method, path, headers, data, cb)
+  local c = {fd={}, headers=headers, req{data=data, path=path}}
+  local b ={}
+  function c.fd.send(self, msg, n)
+    table.insert(b, msg) 
+    return #msg
+  end
+  function c.fd.close(self)
+    return cb(table.concat(b))
+  end
+  for path,fn in pairs(http[method]) do
+    capture=req.path:match(path)
+    if capture then
+      local success, err = pcall(fn,c,capture)
+      if not success then cb(nil) end
+      break
+    end
+  end
 end
