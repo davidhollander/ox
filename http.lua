@@ -50,7 +50,7 @@ function qs_decode(qstr)
 end
 
 function htmlquote(text)
-  return text:gsub("[&<>'\"]",{
+  return string.gsub(text or '',"[&<>'\"]",{
     ['&']="&amp;",
     ['<']="&lt;",
     ['>']="&gt;",

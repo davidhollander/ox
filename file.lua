@@ -171,7 +171,7 @@ function FileHandler(dir,cache)
     http.Respond(c, head, source)
   end
 end
-
+--[[
 function SmartHandler(dir, maxfilecache, maxtotalcache)
   if cached then send
   elseif small and compress then cache gzipped and send
@@ -179,7 +179,7 @@ function SmartHandler(dir, maxfilecache, maxtotalcache)
   elseif big and nocompress then send contentlength
   elseif big and compress then send chunked gzip
 end
-
+]]
 mimetypes = {
   ez = "application/andrew-inset",
   atom = "application/atom+xml",
