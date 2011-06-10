@@ -35,8 +35,8 @@ all:
 Open "mysite.lua" in a text editor.
 Require packages:
 
-   local core = require'ox.core'
-   local http = require'ox.http'
+    local core = require'ox.core'
+    local http = require'ox.http'
 Add a root handler:
 
     http.GET ['^/$'] = function(c)
