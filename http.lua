@@ -5,7 +5,8 @@
 -- an http server and utility functions
 
 local core=require 'ox.core'
-local lhp=require 'http.parser'
+local tc = table.concat
+local ti = table.insert
 module(... or 'ox.http',package.seeall)
 
 status_line={
@@ -49,7 +50,9 @@ function qs_decode(qstr)
   return t
 end
 
-function htmlquote(text)
+url = url_encode
+-- escapes html characters
+function html(text)
   return string.gsub(text or '',"[&<>'\"]",{
     ['&']="&amp;",
     ['<']="&lt;",
@@ -59,78 +62,107 @@ function htmlquote(text)
   })
 end
 
-function SetHeader(c, key, value)
-  c.headers=c.headers or {}
-  c.headers[key]=value
-end
-
--- Respond
-function Respond(c, status, body)
-  local s=status_line[status]
-  local t={s}
-  if c.headers then
-    for k,v in pairs(c.headers) do table.insert(t,k..": "..v.."\r\n") end
-  end
-  table.insert(t,'\r\n')
-  if type(body)=='function' then
-    core.SendSourceEnd(c, table.concat(t), body, '\r\n')
-  else
-    table.insert(t,body)
-    table.insert(t,'\r\n')
-    core.SendEnd(c,table.concat(t))
-  end
-end
-
--- Sets the Content-Length header before responding
-function RespondFixed(c, status, body)
-  local s=status_line[status]
-  local t={s}
-  if not c.headers then c.headers={} end
-  c.headers['Content-Length'] = #body
-  for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
-  table.insert(t, '\r\n')
-  table.insert(t, body)
-  table.insert(t, '\r\n')
-  core.SendEnd(c,table.concat(t))
-end
-
-local function chunkwrap(source)
+-- chunkwrap(source)
+-- transforms the output of a function to HTTP Chunked encoding
+function chunkwrap(source)
   return function()
     local m=source()
     return table.concat{string.format('%x',#m),'\r\n',m,'\r\n'}
   end
 end
--- RespondChunked, for streaming source without buffering
-function RespondChunked(c, status, body)
-  local s=status_line[status]
-  local t={s}
-  if not c.headers then c.headers={} end
-  c.headers['Transfer-Encoding'] = 'Chunked'
-  for k,v in pairs(c.headers) do table.insert(t,k..': '..v..'\r\n') end
-  core.SendSourceEnd(c, table.concat(t), chunkwrap(source), '\r\n')
+
+-- reply(c, status, body)
+-- Send an HTTP response and close connection when done.
+-- [body] can be nil, a string, or a function.
+-- If a function, the response ends when [body] returns 'nil'.
+function reply(c, status, body)
+  local s = status_line[status]
+  if not s then return http.err(c) end
+  local t = {status_line[status]}
+  for k,v in pairs(c.res.head or {}) do
+    ti(t, k) ti(t, ':  ') ti(t, v) ti(t, '\r\n')
+  end
+  for k,v in pairs(c.res.cookie or {}) do
+    ti(t, 'Set-Cookie: ') ti(t, k) ti(t, v) ti(t, '\r\n')
+  end
+  if type(body)=='function' then
+    if not c.res.head['Content-Length'] then
+      ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
+      body=chunkwrap(body)
+    end
+    return core.finish_source(c, table.concat(t), body, '\r\n')
+  elseif type(body)=='string' then
+    ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
+    return core.finish(c, table.concat(t))
+  else return core.finish(c, table.concat(t)) end
 end
+
+-- reply_json(c, status, body)
+-- shortcut for sending json
+function reply_json(c, status, body)
+  c.res.head['Content-Type']='application/json'
+  return reply(c, status, json.encode(body))
+end
+
+-- datetime(utcseconds)
+-- converts a date into a string appropriate for a HTTP header
+-- ex: Wed, 09 Jun 2021 10:18:14 GMT
+function datetime(utcseconds)
+  return os.date('!%a, %d %b %Y %H:%M:%S %Z',utcseconds)
+end
+
+-- header(c, key, [value])
+-- get or set a header for context [c]
+function header(c, key, value)
+  if not value then return c.req.head[key]
+  else c.res.head[key]=value; return true end
+end
+
+-- cookie(c, key, [value])
+-- get or set a cookie for context [c]
+-- ex: c:cookie('message','hello; path=/; httponly')
+function cookie(c, key, value)
+  if not value then return c.req.head.Cookie:match(key..'=(%w+)')
+  else c.req.cookie[key]=value; return true end
+end
+
+local web_methods={
+  cookie=cookie,
+  header=header,
+  reply=reply,
+}
+
+-- web(c): optional middleware for wrapping contexts with helpers
+function web(c) return setmetatable(c, methods) end
 
 -- Server
 -- Create a server on [port] using [views]
 -- [views] contains a subtable for each HTTP method.
 -- Each HTTP method table contains url patterns mapped to functions.
+
 function Server(port,views,mware)
   return core.Serve(port,function(c)
-    c.req={headers={}}
-    local req=c.req; local done=false; local formbuffer={}
+    c.req={head={}}
+    local req, done, buffer = c.req, false, {}
+    local function complete() end
     local parser=lhp.request{
       on_url=function(url) req.url=url end,
       on_path=function(path) req.path=path end,
-      on_header=function(key,val) req.headers[key]=val end,
+      on_header=function(key,val) req.head[key]=val end,
       on_query_string=function(qstr) req.qstr=qs_decode(qstr) end,
       on_fragment=function(frag) req.frag=frag end,
-      on_body=function(body) table.insert(formbuffer, body) end,
+      on_body=function(body) table.insert(buffer, body) end,
       on_message_complete=function()
-        req.data=qs_decode(table.concat(formbuffer))
+        req.body=table.concat(buffer)
+        local d=decoders[req.head['Content-Type']]
+        if d then req.data = d(req.body) end
         done=true
       end,
       on_headers_complete=function()
-        local ct=req.headers['Content-Type']
+        local cl=c.req.head['Content-Length']
+        local te=c.req.head['Transfer-Encoding']
+        if cl and cl>8192 or te and te=='chunked' then done=true end
+        local ct=c.req.head['Content-Type']
         if ct~="application/x-www-form-urlencoded" then done=true end
       end
     }
@@ -157,27 +189,49 @@ function Server(port,views,mware)
   end)
 end
 
--- Client
+local decoders={
+  ['application/x-www-form-urlencoded']=qs_decode,
+  ['application/json']=json.decode,
+}
+-- client
 -- Make an asynchronous HTTP Request and buffer response body
 -- on_message_complete callback is not getting triggered for some reason
-function Client(host, port, method, url, headers, body, cb)
-  return core.Connect(host, port, function(c)
-    local t={method,' ',url," HTTP/1.1\r\n"}
-    for k,v in pairs(headers) do
+function client(req, cb)
+  return core.connect(req.host, req.port or 80, function(c)
+    if not req.head or not req.head.Host then
+      req.head.Host=req.host
+    end
+    local t={req.method or 'GET',' ',req.path or '/'," HTTP/1.1\r\n"}
+    for k,v in pairs(req.head or {}) do
       table.insert(t, k..': '..v..'\r\n')
     end
-    table.insert(t, '\r\n')
-    local req=table.concat(t)
+    if req.cookie then 
+      ti(t, 'Cookie: ')
+      for k,v in pairs(req.cookie) do
+        ti(t, k) ti(t, '=') ti(t, v) ti(t, ';')
+      end
+      ti(t, '\r\n')
+    end
+    if type(req.body)=='function' then
+      if not req.head['Content-Length'] then
+        ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
+        body=chunkwrap(body)
+      end
+      return core.finish_source(c, table.concat(t), body, '\r\n')
+    elseif type(body)=='string' then
+      ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
+      return core.finish(c, table.concat(t))
+    else return core.finish(c, table.concat(t)) end
+
     local res={headers={},body={}}
     local done=false
     local parser=lhp.response{
       on_header=function(key,val) res.headers[key]=val end,
-      on_body=function(chunk,e) print('onbody',chunk,e) table.insert(res.body,chunk) end,
-      on_message_complete=function() print('msg complete') done=true end,
-      on_headers_complete=function() print('headers complete') end,
+      on_body=function(chunk,e) table.insert(res.body,chunk) end,
+      on_message_complete=function() done=true end,
+      on_headers_complete=function() end,
     }
-    core.SendReq(c,req)
-    core.OnRead(c,function(c)
+    core.on_read(c,function(c)
       local data=c.fd:recv(8192)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 or done then
@@ -189,27 +243,4 @@ function Client(host, port, method, url, headers, body, cb)
       end
     end)
   end)
-end
-
--- IntClient
--- Bypass http parsing to make an internal request
--- Maybe make connection an object to bypass Respond methods\faking a file descriptor
-function IntClient(method, path, headers, data, cb)
-  local c = {fd={}, headers=headers, req{data=data, path=path}}
-  local b ={}
-  function c.fd.send(self, msg, n)
-    table.insert(b, msg) 
-    return #msg
-  end
-  function c.fd.close(self)
-    return cb(table.concat(b))
-  end
-  for path,fn in pairs(http[method]) do
-    capture=req.path:match(path)
-    if capture then
-      local success, err = pcall(fn,c,capture)
-      if not success then cb(nil) end
-      break
-    end
-  end
 end

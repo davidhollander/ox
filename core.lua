@@ -17,29 +17,29 @@ local timers={}
 module(... or 'ox.core',package.seeall)
 
 time = os.time()
-Log = print
+log = print
 
--- LogFile
+-- log_file
 -- Store errors in file instead of printing
-function LogFile(file)
-  f=io.open(file,'w')
+function log_file(file)
+  f=io.open(file,'a+')
   if f then
-    Log = function(...)
+    log = function(...)
       f:write(table.concat{...})
       f:flush()
     end
   end
 end
 
--- Trigger
+-- trigger
 -- call [fn] in [sec] seconds.
 -- Low accuracy. Might add something using nixio.ctime in future if needed.
-function Trigger(fn, sec)
+function trigger(fn, sec)
   table.insert(timers,{time=time+sec,fn=fn})
   table.sort(timers, function(a,b) return a.time<b.time end)
 end
 
--- Tick
+-- tick
 -- Fire timers if needed
 -- Popping from beginning is innefficient will prob reimplement
 local function tick()
@@ -50,31 +50,31 @@ local function tick()
   end
 end
 
--- OnRead, OnWrite, StopRead, StopWrite
+-- on_read, on_write, stop_read, stop_write
 -- Set or clear the read and write callback
-function OnRead(c,cb)
+function on_read(c,cb)
   c.events=bset(c.events,EV_IN)
   c.read=cb
 end
-function OnWrite(c,cb)
+function on_write(c,cb)
   c.events=bset(c.events,EV_OUT)
   c.write=cb
 end
-function StopRead(c)
+function stop_read(c)
   c.events=bunset(c.events,EV_IN)
   c.read=nil
 end
-function StopWrite(c)
+function stop_write(c)
   c.events=bunset(c.events,EV_OUT)
   c.write=nil
 end
 
--- SendEnd
--- Start sending on next cycle, Close when done
-function SendEnd(c, msg)
+-- finish
+-- Start sending on next cycle, close when done
+function finish(c, msg)
   local n=0
-  OnWrite(c,function(c)
-    n=n+c.fd:send(msg,n)
+  on_write(c,function(c)
+    n=n+c.fd:send(msg, n)
     if n>=#msg then
       c.fd:close()
       return 'close'
@@ -82,31 +82,30 @@ function SendEnd(c, msg)
   end)
 end
 
--- SendReq
+-- send_req
 -- Send a message until done, checking for disconnect.
-function SendReq(c, msg, cb)
+function send_req(c, msg, cb)
   local n=0
-  OnWrite(c, function(c)
-    local m = c.fd:send(msg, n)
-    if not m then
-      if cb then cb(false) end
-      c.fd:close() return 'close'
-    end
-    n=n+m
-    if n==#msg then
-      StopWrite(c)
+  on_write(c, function(c)
+    local m = c.fd:send(msg, n) or c.fd:close()
+    if m==true then
+      if cb then cb() end
+      return 'close'
+    else n=n+m end
+    if n>=#msg then
+      stop_write(c)
       if cb then cb(c) end
     end
   end)
 end
 
--- SendSourceEnd
+-- finish_source
 -- Send a chunk on every cycle starting with [head]
 -- when [source] returns nil, send [foot] and close.
-function SendSourceEnd(c, head, source, foot)
+function finish_source(c, head, source, foot)
   local n=0
   local msg=head or source()
-  OnWrite(c, function(c)
+  on_write(c, function(c)
     n=n+c.fd:send(msg,n)
     if n==#msg then
       n=0
@@ -120,9 +119,9 @@ function SendSourceEnd(c, head, source, foot)
   end)
 end
 
--- BufferPipe
+-- buffer_pipe
 -- Buffer the ouput from a pipe, then passes to [cb]
-function BufferPipe(cb)
+function buffer_pipe(cb)
   local out={}
   return function (c)
     while true do
@@ -137,33 +136,33 @@ function BufferPipe(cb)
   end
 end
 
--- SendQueue
+-- push_send
 -- If already writing, put in outbox
 -- Else start writing and check outbox when done
-function SendQueue(c, chunk)
+function push_send(c, chunk)
   if bcheck(c.events,EV_OUT) then
     if not c.outbox then c.outbox={chunk}
     else table.insert(c.outbox,chunk) end
   else
     local n=0
     local msg=chunk
-    OnWrite(c,function(c)
+    on_write(c,function(c)
       n=c.fd:send(msg,n)
       if n==#msg then
         if c.outbox then
           msg=table.concat(c.outbox)
           c.outbox=nil
           n=0
-        else StopWrite(c) end
+        else stop_write(c) end
       end
     end)
   end
 end
 
--- CallFork
+-- call_fork
 -- Fork and call [fn] outside of the event loop, pass result to [cb]
 -- Result is a buffered string
-function CallFork(fn, cb)
+function call_fork(fn, cb)
   local pipeout,pipein=nixio.pipe()
   pipeout:setblocking(false)
   local pid=nixio.fork()
@@ -177,19 +176,20 @@ function CallFork(fn, cb)
       events=EV_IN,
       revents=0,
       accept_time=time,
-      read=BufferPipe(cb)
+      read=buffer_pipe(cb)
     })
   end
 end
 
--- Connect
+-- connect
 -- Create a connection to [host] on [port] and pass to [cb]
 -- If [host] is not an ip address, fork and wait for DNS loopup, then cache ip
 local host_cache={}
-function Connect(host, port, cb)
+function connect(host, port, cb)
 
   local function _connect(ip, port, cb)
-    local sock = nixio.socket('inet','stream')
+    local sock, err = nixio.socket('inet','stream')
+    if not sock then log('Could not create socket: '..err)
     sock:setblocking(false)
     sock:connect(ip, port)
     local c={fd=sock,events=0,revents=0}
@@ -201,7 +201,7 @@ function Connect(host, port, cb)
   local ip = host:match('^%d+\.%d+\.%d+\.%d+$') or host_cache[host]
   if ip then return _connect(ip, port, cb)
   else
-    CallFork(function()
+    call_fork(function()
       local x = nixio.getaddrinfo(host, 'inet', port)
       return x and x[1].address or nil
     end,
@@ -212,9 +212,9 @@ function Connect(host, port, cb)
   end
 end
 
--- Serve
+-- serve
 -- Run a tcp server on [port] that passes each accepted client to [cb]
-function Serve(port, cb)
+function serve(port, cb)
   local sock = nixio.bind('*', port)
   if sock then
     sock:setblocking(false)
@@ -238,9 +238,9 @@ function Serve(port, cb)
   else return false end
 end
 
--- Expires
+-- expire
 -- Close accepted connections older than [timeout]
-function Expire(timeout)
+function expire(timeout)
   local old = time - timeout
   local oldcontexts=contexts
   contexts={}
@@ -250,35 +250,35 @@ function Expire(timeout)
     else
       local c=oldcontexts[i]
       if not c.accept_time then table.insert(contexts,c)
-      elseif c.accept_time<old then c.fd:close(); print('expired')
+      elseif c.accept_time<old then c.fd:close(); log('expired')
       else brk=true; table.insert(contexts,c) end
     end
   end
 end
 
--- Stop: break server loop
-function Stop() on=false end
+-- stop: break server loop
+function stop() on=false end
 
--- Loop
+-- loop
 -- Starts main event loop with optional [times] callback table
-function Loop()
+function loop()
   while on do
-    local stat, code = nixio.poll(contexts,500)
+    local stat, code = nixio.poll(contexts, 500)
     time=os.time()
     if stat and stat>0 then
       local oldcontexts=contexts
       contexts={}
       for i=1,#oldcontexts do
         local c=oldcontexts[i]
-        if bcheck(c.revents,EV_OUT) and c.write(c)=='close'
-          or bcheck(c.revents,EV_IN) and c.read(c)=='close' then
-          --c.close(c)
+        if bcheck(c.revents,EV_OUT) and c:write()=='close'
+          or bcheck(c.revents,EV_IN) and c:read()=='close' then
+            c.fd:close()
         else
           c.revents=0 
           table.insert(contexts,c)
         end
       end
     end
-    Expire(20)
+    expire(20)
   end
 end
