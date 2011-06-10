@@ -14,9 +14,11 @@ Lua's ability to return multiple values from functions and limited number of cor
 2. Add readline support to LuaJIT2 (optional): http://dhllndr.posterous.com/adding-readline-support-to-luajit2
 
 if debian\ubuntu:
+
 3. "make apt"
 
 else:
+
 4. Install luarocks: apt-get install luarocks (also available: http://luarocks.org/en/Download )
 5. Install the dependencies with rock files:
     luarocks install nixio
@@ -25,6 +27,7 @@ else:
 6. Install lua-zlib: https://github.com/brimworks/lua-zlib
 
 all:
+
 7. "make install". Or copy core.lua, http.lua, file.lua to [Lua Module Folder]/ox/
 
 ## Getting started
