@@ -34,15 +34,19 @@ all:
 
 Open "mysite.lua" in a text editor.
 Require packages:
+
    local core = require'ox.core'
    local http = require'ox.http'
 Add a root handler:
+
     http.GET ['^/$'] = function(c)
       http.reply(c, 200, "Hello World")
     end
 Add a server:
+
     http.server(8080, http)
 Start the server:
+
     print(8080)
     core.loop()
 
