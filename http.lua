@@ -140,8 +140,8 @@ function web(c) return setmetatable(c, methods) end
 -- [views] contains a subtable for each HTTP method.
 -- Each HTTP method table contains url patterns mapped to functions.
 
-function Server(port,views,mware)
-  return core.Serve(port,function(c)
+function serve(port,views,mware)
+  return core.serve(port,function(c)
     c.req={head={}}
     local req, done, buffer = c.req, false, {}
     local function complete() end
@@ -166,7 +166,7 @@ function Server(port,views,mware)
         if ct~="application/x-www-form-urlencoded" then done=true end
       end
     }
-    core.OnRead(c,function(c)
+    core.on_read(c,function(c)
       local data=c.fd:recv(1024)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 then
@@ -179,11 +179,11 @@ function Server(port,views,mware)
           capture=req.path:match(path)
           if capture then
             local success,err=pcall(fn,c,capture)
-            if not success then Respond(c, 500, err); core.Log(500,err) end
+            if not success then reply(c, 500, err); core.log(500, err) end
             break
           end
         end
-        if not capture then Respond(c, 404) end
+        if not capture then reply(c, 404) end
       end
     end)
   end)
@@ -193,10 +193,10 @@ local decoders={
   ['application/x-www-form-urlencoded']=qs_decode,
   ['application/json']=json.decode,
 }
--- client
+-- fetch
 -- Make an asynchronous HTTP Request and buffer response body
 -- on_message_complete callback is not getting triggered for some reason
-function client(req, cb)
+function fetch(req, cb)
   return core.connect(req.host, req.port or 80, function(c)
     if not req.head or not req.head.Host then
       req.head.Host=req.host
