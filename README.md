@@ -30,6 +30,8 @@ all:
 
 7. "make install". Or copy core.lua, http.lua, file.lua to [Lua Module Folder]/ox/
 
+When pulling new versions, only the last step needs to be repeated.
+
 ## Getting started
 
 Open "mysite.lua" in a text editor.
@@ -37,7 +39,7 @@ Require packages:
 
     local core = require'ox.core'
     local http = require'ox.http'
-Add a root handler:
+Add a handler:
 
     http.GET ['^/$'] = function(c)
       http.reply(c, 200, "Hello World")
@@ -45,7 +47,7 @@ Add a root handler:
 Add a server:
 
     http.server(8080, http)
-Start the server:
+Start the event loop:
 
     print(8080)
     core.loop()
