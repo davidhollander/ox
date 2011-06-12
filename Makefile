@@ -4,14 +4,15 @@ LUA=$(shell lua -e "print(package.path:match(';(.-)?.lua'))")
 default:
 	@echo ""
 	@echo "  apt: download and install all dependencies on ubuntu/debian"
-	@echo "  install: copy to $(LUA)/ox"
-	@echo "  remove: remove from $(LUA)/ox"
+	@echo "  install: copy to $(LUA)ox"
+	@echo "  remove: remove from $(LUA)ox"
 	@echo ""
-apt:
+
+
+apt: apt2 rocks cmake install
+apt2:
 	sudo apt-get install build-essential lua5.1 luarocks cmake zlib1g-dev
-	rocks
-	cmake
-	install
+
 rocks:
 	luarocks install nixio
 	luarocks install http-parser
@@ -25,10 +26,10 @@ cmake:
 
 
 install:
-	mkdir $(LUA)/ox/
-	cp core.lua $(LUA)/ox/
-	cp http.lua $(LUA)/ox/
-	cp file.lua $(LUA)/ox/
+	mkdir -p $(LUA)ox/
+	cp core.lua $(LUA)ox/
+	cp http.lua $(LUA)ox/
+	cp file.lua $(LUA)ox/
 
 remove:
-	rm -r $(LUA)/ox/
+	rm -r $(LUA)ox/

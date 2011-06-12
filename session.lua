@@ -5,7 +5,8 @@
 -- Session middleware for user authentication
 -- Ex: http.Server(8080, http, {session.Check})
 local http=require'ox.http'
-
+local ti=table.insert
+local tc=table.concat
 local key_user={}
 local user_key={}
 local user_token={}
@@ -14,23 +15,21 @@ math.randomseed(os.time())
 module('ox.session',package.seeall)
 
 -- Check
-function Check(c)
-  local h=c.req.headers
-  if not h.Cookie then return end
-  local u=h.Cookie:match('u=(%w+)')
+function check(c)
+  local u = http.cookie(c, 'u')
   if u then 
-    key=table.concat{u,c.fd:getpeername(),h['User-Agent']}
+    key=tc{u, c.fd:getpeername(), h['User-Agent']}
     c.user=key_user[key]
   end
 end
 
-function CSRF(c)
+function csrf(c)
   if c.data and c.data.token~=user_token[c.user] then
     http.Respond(c, 401, 'CSRF Failure')
   end
 end
 
-function Login(c, user)
+function login(c, user)
   local key, u
   repeat
     u=string.format('%x',math.random(10e10))
@@ -38,11 +37,11 @@ function Login(c, user)
   until not keys[key]
   key_user[key]=user
   user_key[user]=key
-  http.SetHeader(c,'Set-Cookie','u='..u..'; httponly')
+  http.cookie(c, 'u', u..'; httponly')
 end
 
-function Logout(c)
-  http.SetHeader(c,'Set-Cookie','u=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT;')
+function logout(c)
+  http.cookie(c,'u','deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT;')
   local k = usertokey[c.user]
   user_key[c.user]=nil
   key_user[k]=nil

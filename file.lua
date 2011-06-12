@@ -17,7 +17,7 @@ module(... or 'ox.file',package.seeall)
 
 -- Source File
 -- Iterate to the end of the file
-function SourceFile(file)
+function source_file(file)
   return function()
     if not file then return nil end
     local chunk=file:read(8192)
@@ -32,7 +32,7 @@ end
 
 -- Source Partial
 -- Iterate for N bytes of the file
-function SourcePartial(file,n)
+function source_partial(file,n)
   return function()
     if not file then return nil end
     if n>8192 then m=8192; n=n-8192
@@ -43,7 +43,7 @@ function SourcePartial(file,n)
   end
 end
 
-function Compress(source)
+function compress(source)
   local filter=zlib.deflate()
   return function()
     if not filter then return nil end
@@ -53,9 +53,9 @@ function Compress(source)
   end
 end
 
--- partialseek
+-- partial_seek
 --If Range header is correct, seek file and returns bytes to read
-local function partialseek(f,rangeheader)
+local function partial_seek(f,rangeheader)
   if not rangeheader then return nil end
   local start,stop=rangeheader:match('(%d+)%s*-%s*(%d+)')
   if start and stop then
@@ -70,7 +70,7 @@ end
 
 -- CacheSingle
 -- Cache a static response into memory using a file
-function CacheSingle(path)
+function cache_single(path)
   local f=nixio.open(path)
   if not f then print("Could not cache: "..path) end
   local stats=f:stat()
@@ -88,7 +88,7 @@ function CacheSingle(path)
 end	
 -- ServeSingle
 -- Checks if file has changed each request and recaches
-function ServeSingle(path)
+function serve_single(path)
   local res
   local mtime
   local function cache(f) 
@@ -110,7 +110,7 @@ function ServeSingle(path)
 end
 
 -- CacheFolder
-function CacheFolder(path, maxfile, maxtotal)
+function cachefolder(path, maxfile, maxtotal)
 
 end
 -- ServeSingle
@@ -119,7 +119,7 @@ end
 -- SimpleHandler
 -- Serves files from a directory without cacheing
 -- Only supports 200 and 404, Content-Type
-function SimpleHandler(dir)
+function simple_handler(dir)
   local dir=dir:match('^(.+)/?$')
   return function(c, path)
     if path:match('%.%.') then http.Respond(c, 404) end
@@ -139,7 +139,7 @@ end
 
 --File Handler
 --Turns a folder into a HTTP file handler
-function FileHandler(dir,cache)
+function file_handler(dir,cache)
   return function(c,path)
     --Check for existence
     f=nixio.open(dir..path)
@@ -152,10 +152,10 @@ function FileHandler(dir,cache)
     http.SetHeader(c,'Content-Type',mime)
 
     local stats=f:stat()
-    http.SetHeader(c,'Last-modified',os.date("!%a, %d %b %Y %H:%M:%S GMT",
-    stats.mtime))
+    http.header(c, 'Last-modified', os.date("!%a, %d %b %Y %H:%M:%S GMT",
+      stats.mtime))
     --Negotiate response type
-    local rangeread=partialseek(f,http.GetHeader(c,'Range'))
+    local rangeread=partial_seek(f,http.GetHeader(c,'Range'))
     local status=rangeread and 206 or 200
     local source=rangeread and SourcePartial(f,rangeread) or SourceFile(f)
 

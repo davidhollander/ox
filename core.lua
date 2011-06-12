@@ -19,8 +19,7 @@ module(... or 'ox.core',package.seeall)
 time = os.time()
 log = print
 
--- log_file
--- Store errors in file instead of printing
+---Store errors in file instead of printing
 function log_file(file)
   f=io.open(file,'a+')
   if f then
@@ -35,42 +34,42 @@ end
 -- call [fn] in [sec] seconds.
 -- Low accuracy. Might add something using nixio.ctime in future if needed.
 function trigger(fn, sec)
-  table.insert(timers,{time=time+sec,fn=fn})
+  table.insert(timers,{time=os.time()+sec,fn=fn})
   table.sort(timers, function(a,b) return a.time<b.time end)
 end
 
 -- tick
 -- Fire timers if needed
--- Popping from beginning is innefficient will prob reimplement
 local function tick()
-  for i=1,#timers do
-    local t=timers[1]
-    if t.time>=time then break
-    else t.fn(); table.remove(timers,1) end
+  for i=#timers,1,-1 do
+    local t=timers[i]
+    if t.time>os.time() then break
+    else t.fn(); timers[i]=nil end
   end
 end
 
--- on_read, on_write, stop_read, stop_write
--- Set or clear the read and write callback
+---Set the read callback for a connection table
 function on_read(c,cb)
   c.events=bset(c.events,EV_IN)
   c.read=cb
 end
+---Set the write callback for a connection table
 function on_write(c,cb)
   c.events=bset(c.events,EV_OUT)
   c.write=cb
 end
+---Clear the read callback for a connection table
 function stop_read(c)
   c.events=bunset(c.events,EV_IN)
   c.read=nil
 end
+---Clear the write callback for a connection table
 function stop_write(c)
   c.events=bunset(c.events,EV_OUT)
   c.write=nil
 end
 
--- finish
--- Start sending on next cycle, close when done
+---Start sending on next cycle, close when done
 function finish(c, msg)
   local n=0
   on_write(c,function(c)
@@ -82,8 +81,7 @@ function finish(c, msg)
   end)
 end
 
--- send_req
--- Send a message until done, checking for disconnect.
+---Send a message until done, checking for disconnects.
 function send_req(c, msg, cb)
   local n=0
   on_write(c, function(c)
@@ -99,8 +97,7 @@ function send_req(c, msg, cb)
   end)
 end
 
--- finish_source
--- Send a chunk on every cycle starting with [head]
+---Send a chunk on every cycle starting with [head]
 -- when [source] returns nil, send [foot] and close.
 function finish_source(c, head, source, foot)
   local n=0
@@ -119,8 +116,7 @@ function finish_source(c, head, source, foot)
   end)
 end
 
--- buffer_pipe
--- Buffer the ouput from a pipe, then passes to [cb]
+---Buffer the ouput from a pipe, then passes to [cb]
 function buffer_pipe(cb)
   local out={}
   return function (c)
@@ -136,8 +132,7 @@ function buffer_pipe(cb)
   end
 end
 
--- push_send
--- If already writing, put in outbox
+---If already writing, put in outbox
 -- Else start writing and check outbox when done
 function push_send(c, chunk)
   if bcheck(c.events,EV_OUT) then
@@ -159,8 +154,7 @@ function push_send(c, chunk)
   end
 end
 
--- call_fork
--- Fork and call [fn] outside of the event loop, pass result to [cb]
+---Fork and call [fn] outside of the event loop, pass result to [cb]
 -- Result is a buffered string
 function call_fork(fn, cb)
   local pipeout,pipein=nixio.pipe()
@@ -175,27 +169,27 @@ function call_fork(fn, cb)
       fd=pipeout,
       events=EV_IN,
       revents=0,
-      accept_time=time,
+      accept_time=time+10,
       read=buffer_pipe(cb)
     })
   end
 end
 
--- connect
--- Create a connection to [host] on [port] and pass to [cb]
--- If [host] is not an ip address, fork and wait for DNS loopup, then cache ip
 local host_cache={}
+---Create a connection to [host] on [port] and pass to [cb]
+-- If [host] is not an ip address, fork and wait for DNS loopup, then cache ip
 function connect(host, port, cb)
 
   local function _connect(ip, port, cb)
-    local sock, err = nixio.socket('inet','stream')
-    if not sock then log('Could not create socket: '..err)
-    sock:setblocking(false)
-    sock:connect(ip, port)
-    local c={fd=sock,events=0,revents=0}
-    table.insert(contexts, c)
-    cb(c)
-    return true
+    local sock, e, m = nixio.socket('inet','stream')
+    if sock then
+      sock:setblocking(false)
+      sock:connect(ip, port)
+      local c={fd=sock,events=0,revents=0}
+      table.insert(contexts, c)
+      cb(c)
+      return true
+    else return nil, e, m end
   end
 
   local ip = host:match('^%d+\.%d+\.%d+\.%d+$') or host_cache[host]
@@ -212,10 +206,9 @@ function connect(host, port, cb)
   end
 end
 
--- serve
--- Run a tcp server on [port] that passes each accepted client to [cb]
+---Run a tcp server on [port] that passes each accepted client to [cb]
 function serve(port, cb)
-  local sock = nixio.bind('*', port)
+  local sock, e, m = nixio.bind('*', port)
   if sock then
     sock:setblocking(false)
     sock:listen(1024)
@@ -235,7 +228,7 @@ function serve(port, cb)
       end
     })
     return true
-  else return false end
+  else return nil,e,m end
 end
 
 -- expire
@@ -256,12 +249,11 @@ function expire(timeout)
   end
 end
 
--- stop: break server loop
+---break server loop
 function stop() on=false end
 
--- loop
--- Starts main event loop with optional [times] callback table
-function loop()
+---Starts main event loop. Times out generated connections after 20 seconds.
+function loop(timeout)
   while on do
     local stat, code = nixio.poll(contexts, 500)
     time=os.time()
@@ -272,13 +264,14 @@ function loop()
         local c=oldcontexts[i]
         if bcheck(c.revents,EV_OUT) and c:write()=='close'
           or bcheck(c.revents,EV_IN) and c:read()=='close' then
-            c.fd:close()
+            --c.fd:close()
         else
           c.revents=0 
           table.insert(contexts,c)
         end
       end
     end
-    expire(20)
+    expire(timeout or 20)
+    tick()
   end
 end
