@@ -68,7 +68,7 @@ local function partial_seek(f,rangeheader)
   return nil
 end
 
--- CacheSingle
+-- cache_single
 -- Cache a static response into memory using a file
 function cache_single(path)
   local f=nixio.open(path)
@@ -86,7 +86,7 @@ function cache_single(path)
   body=nil f=nil stats=nil
   return function(c) core.SendEnd(c, res) end
 end	
--- ServeSingle
+-- serve_single
 -- Checks if file has changed each request and recaches
 function serve_single(path)
   local res
@@ -109,14 +109,12 @@ function serve_single(path)
   return function(c) check() core.SendEnd(c, res) end
 end
 
--- CacheFolder
+-- cache_folder
 function cachefolder(path, maxfile, maxtotal)
 
 end
--- ServeSingle
--- ServeFolder
 
--- SimpleHandler
+-- simple_handler
 -- Serves files from a directory without cacheing
 -- Only supports 200 and 404, Content-Type
 function simple_handler(dir)
@@ -126,34 +124,32 @@ function simple_handler(dir)
     f=nixio.open(dir..'/'..path)
     if not f then return http.Respond(c, 404) end
     local ext=path:match('%.(%w+)$')
-    local mime=mimetypes[ext] or 'application/octet-stream'
-    print(mime,ext)
-    http.SetHeader(c,'Content-Type',mime)
+    local mime=mime_types[ext] or 'application/octet-stream'
+    http.header(c,'Content-Type',mime)
     local stats=f:stat()
-    http.SetHeader(c,'Last-Modified',os.date("!%a, %d %b %Y %H:%M:%S GMT",
-    stats.mtime))
-    http.SetHeader(c,'Content-Length',stats.size)
-    http.Respond(c,200,SourceFile(f))
+    http.header(c, 'Last-Modified', http.datetime(stats.mtime))
+    http.header(c, 'Content-Length', stats.size)
+    http.reply(c, 200,source_file(f))
   end
 end
 
---File Handler
---Turns a folder into a HTTP file handler
-function file_handler(dir,cache)
+--turn a folder into a HTTP file handler
+function file_handler(dir, cache)
+  local dir=dir:match('^(.+)/?$')
   return function(c,path)
     --Check for existence
-    f=nixio.open(dir..path)
-    if not f then return http.Respond(c,404) end
+    if path:match('%.%.') then http.Respond(c, 404) end
+    f=nixio.open(dir..'/'..path)
+    if not f then return http.Respond(c, 404) end
     --Set cache headers
-    --http.SetHeader('Cache-Control','max-age=3600, must-revalidate')
+    --http.header(c, 'Cache-Control','max-age=3600, must-revalidate')
     --Negotiate content-type
     local ext=path:match('%.(%w+)$')
     local mime=mimetypes[ext] or 'application/octet-stream'
     http.SetHeader(c,'Content-Type',mime)
 
     local stats=f:stat()
-    http.header(c, 'Last-modified', os.date("!%a, %d %b %Y %H:%M:%S GMT",
-      stats.mtime))
+    http.header(c, 'Last-modified', http.datetime(stats.mtime))
     --Negotiate response type
     local rangeread=partial_seek(f,http.GetHeader(c,'Range'))
     local status=rangeread and 206 or 200
@@ -180,7 +176,7 @@ function SmartHandler(dir, maxfilecache, maxtotalcache)
   elseif big and compress then send chunked gzip
 end
 ]]
-mimetypes = {
+mime_types = {
   ez = "application/andrew-inset",
   atom = "application/atom+xml",
   hqx = "application/mac-binhex40",
