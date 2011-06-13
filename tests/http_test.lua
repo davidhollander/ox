@@ -115,19 +115,8 @@ addtest {
   end
 }
 
-function quit()
-  local sock,err,m = nixio.connect(host, port)
-  print('QUIT',sock, err,m)
-  sock:send(req_quit)
-  sock:close()
-  return true
-end
-
 http.GET['^/$'] = function(c)
   http.reply(c, 200, "Hello")
-end
-http.GET['^/shutdown$'] = function(c)
-  os.exit()
 end
 
 local n=0

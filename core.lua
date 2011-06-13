@@ -31,18 +31,6 @@ function log_file(file)
   end
 end
 
-local global_events={}
-function bind(name, fn)
-  if global_events[name] then
-    ti(global_events[name], fn)
-  else global_events[name]={fn} end
-end
-function trigger(name)
-  for i,fn in ipairs(global_events) do
-    fn()
-  end
-end
-
 
 -- call [fn] in [sec] seconds.
 -- Low accuracy. Might add something using nixio.ctime in future if needed.
@@ -81,6 +69,19 @@ function stop_write(c)
   c.events=bunset(c.events,EV_OUT)
   c.write=nil
 end
+
+local global_events={}
+function bind(name, fn)
+  if global_events[name] then
+    ti(global_events[name], fn)
+  else global_events[name]={fn} end
+end
+function trigger(name)
+  for i,fn in ipairs(global_events) do
+    fn()
+  end
+end
+
 
 ---Start sending on next cycle, close when done
 function finish(c, msg)

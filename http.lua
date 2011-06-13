@@ -136,9 +136,12 @@ end
 ---get or set a cookie for context [c]
 -- ex: c:cookie('message','hello; path=/; httponly')
 function cookie(c, key, value)
-  if not value then return c.req.head.Cookie:match(key..'=(%w+)')
-  else c.req.cookie[key]=value; return true end
+  if not value then
+    return c.req.head.Cookie:match(key..'=(%w+)')
+  else c.req.jar[key]=value; return true end
 end
+
+
 
 local web_methods={
   cookie=cookie,
@@ -167,7 +170,13 @@ function serve(port, views, mware)
     local parser=lhp.request{
       on_url=function(url) req.url=url end,
       on_path=function(path) req.path=path end,
-      on_header=function(key,val) req.head[key]=val end,
+      on_header=function(key,val)
+        if key=='Cookie' then
+          for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
+            req.jar[k]=v
+          end
+        else req.head[key]=val end
+      end,
       on_query_string=function(qstr) req.qstr=qs_decode(qstr) end,
       on_fragment=function(frag) req.frag=frag end,
       on_body=function(body) table.insert(buffer, body) end,
@@ -210,7 +219,7 @@ function serve(port, views, mware)
 end
 
 --Make an asynchronous HTTP request [req] and call [cb] with response
-function fetch(req, cb)
+function fetch(req)
   return core.connect(req.host, req.port or 80, function(c)
     -- build request
     if not req.head or not req.head.Host then req.head.Host=req.host end
@@ -240,10 +249,16 @@ function fetch(req, cb)
     else return core.send(c, tc(t)) end
 
     -- parse response
-    local res={headers={},body={}}
+    local res={head={},jar={}}
     local done=false
     local parser=lhp.response{
-      on_header=function(key,val) res.headers[key]=val end,
+      on_header=function(key,val)
+        if key=='Cookie' then
+          for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
+            res.jar[k]=v
+          end
+        else res.head[key]=val end
+      end,
       on_body=function(chunk,e) table.insert(res.body,chunk) end,
       on_message_complete=function() done=true end,
       on_headers_complete=function() end,
@@ -255,7 +270,7 @@ function fetch(req, cb)
         res.status=parser:status_code();
         res.body=table.concat(res.body)
         c.fd:close()
-        cb(res)
+        req.cb(res)
         return 'close'
       end
     end)
