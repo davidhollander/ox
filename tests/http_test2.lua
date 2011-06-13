@@ -25,8 +25,7 @@ http.fetch {
   port = port,
   jar = {message='hello cookie'},
   head = {message='hello header'},
-  done = function(res)
-    assert(res)
+  success = function(res)
     assert(res.status==200)
     assert(res.body=='hello world, hello cookie, hello header')
     assert(res.jar.message=='hello cookie')

@@ -164,7 +164,7 @@ local decoders={
 --@param mware List of functions to pass the connection table through before calling a handler. Optional
 function serve(port, views, mware)
   return core.serve(port, function(c)
-    c.req={head={}}
+    c.req={head={},jar={}}
     local req, done, buffer = c.req, false, {}
     local function complete() end
     local parser=lhp.request{
@@ -270,7 +270,14 @@ function fetch(req)
         res.status=parser:status_code();
         res.body=table.concat(res.body)
         c.fd:close()
-        req.cb(res)
+        if req[res.status] then req[res.status](res)
+        elseif res.status>=200 and res.status<300 and req.success then
+          req.success(res)
+        elseif res.status>=300 and res.status<400 and req.redirect then
+          req.redirect(res)
+        elseif res.status>=400 and req.error then
+          req.error(res)
+        end
         return 'close'
       end
     end)

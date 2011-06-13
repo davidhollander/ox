@@ -95,22 +95,6 @@ function finish(c, msg)
   end)
 end
 
----Send a message until done, checking for disconnects.
-function send_req(c, msg, cb)
-  local n=0
-  on_write(c, function(c)
-    local m = c.fd:send(msg, n) or c.fd:close()
-    if m==true then
-      if cb then cb() end
-      return 'close'
-    else n=n+m end
-    if n>=#msg then
-      stop_write(c)
-      if cb then cb(c) end
-    end
-  end)
-end
-
 ---Send a chunk on every cycle starting with [head]
 -- when [source] returns nil, send [foot] and close.
 function finish_source(c, head, source, foot)
@@ -125,6 +109,40 @@ function finish_source(c, head, source, foot)
         c.fd:send(foot or '')
         c.fd:close()
         return 'close'
+      end
+    end
+  end)
+end
+
+
+---Send a message until done, checking for disconnects.
+function send(c, msg, cb)
+  local n=0
+  on_write(c, function(c)
+    local m = c.fd:send(msg, n) or c.fd:close()
+    if m==true then return 'close', cb and cb()
+    else n=n+m end
+    if n>=#msg then
+      stop_write(c)
+      return cb and cb(c)
+    end
+  end)
+end
+
+function send_source(c, head, source, foot, cb)
+  local n=0
+  local msg = head or source()
+  on_write(c, function(c)
+    local m = c.fd:send(msg, n) or c.fd:close()
+    if m==true then return 'close', cb and cb()
+    else n=n+m end
+    if n>=#msg then
+      n=0
+      msg = source()
+      if not msg then
+        c.fd:send(foot or '')
+        stop_write(c)
+        return cb and cb(c)
       end
     end
   end)
