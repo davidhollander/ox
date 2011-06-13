@@ -53,21 +53,6 @@ function compress(source)
   end
 end
 
--- partial_seek
---If Range header is correct, seek file and returns bytes to read
-local function partial_seek(f,rangeheader)
-  if not rangeheader then return nil end
-  local start,stop=rangeheader:match('(%d+)%s*-%s*(%d+)')
-  if start and stop then
-    start=tonumber(start);stop=tonumber(stop)
-    local toread=stop-start
-    if toread>0 and f:seek(start,"set") then
-      return toread
-    end
-  end
-  return nil
-end
-
 -- cache_single
 -- Cache a static response into memory using a file
 function cache_single(path)
@@ -133,49 +118,44 @@ function simple_handler(dir)
   end
 end
 
+
+-- partial_seek
+--If Range header is correct, seek file and returns bytes to read
+local function partial_seek(f, header)
+  if header then
+    local start, stop=rangeheader:match('(%d+)%s*-%s*(%d+)')
+    if start and stop then
+      start=tonumber(start);stop=tonumber(stop)
+      local n=stop-start
+      if n>0 and f:seek(start,"set") then
+        return n
+      end
+    end
+  end
+  return nil
+end
+
 --turn a folder into a HTTP file handler
-function file_handler(dir, cache)
+function folder_handler(dir)
   local dir=dir:match('^(.+)/?$')
   return function(c,path)
-    --Check for existence
-    if path:match('%.%.') then http.Respond(c, 404) end
-    f=nixio.open(dir..'/'..path)
-    if not f then return http.Respond(c, 404) end
-    --Set cache headers
-    --http.header(c, 'Cache-Control','max-age=3600, must-revalidate')
-    --Negotiate content-type
-    local ext=path:match('%.(%w+)$')
-    local mime=mimetypes[ext] or 'application/octet-stream'
-    http.SetHeader(c,'Content-Type',mime)
-
+    local f = not path:match('%.%.') and nixio.open(dir..'/'..path)
+    if not f then return http.reply(c, 404) end
+    local body={}
+    local mime=mime_types[path:match('%.(%w+)$')] or 'application/octet-stream'
     local stats=f:stat()
+    --http.header(c, 'Cache-Control','max-age=3600, must-revalidate')
+    http.header(c, 'Content-Type', mime)
     http.header(c, 'Last-modified', http.datetime(stats.mtime))
-    --Negotiate response type
-    local rangeread=partial_seek(f,http.GetHeader(c,'Range'))
-    local status=rangeread and 206 or 200
-    local source=rangeread and SourcePartial(f,rangeread) or SourceFile(f)
-
-    --[[Negotiate response encoding
-    local body
-    if c.req.header['Accept-Encoding']:match('gzip') then
-    body=Compress(source)
-    http.SetHeader('Content-Encoding','gzip')
-    else body=source end]]
-    body=source
-
-    --Respond
-    http.Respond(c, head, source)
+    if string.match(http.header(c, 'Accept-Encoding') or '', 'gzip') then
+      c.res.head['Content-Encoding']='gzip'
+    else http.header(c, 'Content-Length', stats.size) end
+    local n = partial_seek(f, http.header(c,'Range'))
+    if n then return http.reply(c, 206, source_partial(f,n))
+    else return http.reply(c, 200, source_file(f)) end
   end
 end
---[[
-function SmartHandler(dir, maxfilecache, maxtotalcache)
-  if cached then send
-  elseif small and compress then cache gzipped and send
-  elseif small and nocomrpess then cache and send
-  elseif big and nocompress then send contentlength
-  elseif big and compress then send chunked gzip
-end
-]]
+
 mime_types = {
   ez = "application/andrew-inset",
   atom = "application/atom+xml",

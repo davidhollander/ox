@@ -132,7 +132,7 @@ end
 
 local n=0
 local function dotest()
-  core.trigger(function()
+  core.timer(function()
     n=n+1
     if n>#tests then return core.stop() end
     local t=tests[n]

@@ -13,7 +13,8 @@ local EV_IN=nixio.poll_flags('in')
 local contexts={}
 local on=true
 local timers={}
-
+local ti=table.insert
+local tc=table.concat
 module(... or 'ox.core',package.seeall)
 
 time = os.time()
@@ -30,11 +31,23 @@ function log_file(file)
   end
 end
 
--- trigger
+local global_events={}
+function bind(name, fn)
+  if global_events[name] then
+    ti(global_events[name], fn)
+  else global_events[name]={fn} end
+end
+function trigger(name)
+  for i,fn in ipairs(global_events) do
+    fn()
+  end
+end
+
+
 -- call [fn] in [sec] seconds.
 -- Low accuracy. Might add something using nixio.ctime in future if needed.
-function trigger(fn, sec)
-  table.insert(timers,{time=os.time()+sec,fn=fn})
+function timer(fn, sec)
+  ti(timers, {time=os.time()+sec,fn=fn})
   table.sort(timers, function(a,b) return a.time<b.time end)
 end
 
@@ -72,7 +85,7 @@ end
 ---Start sending on next cycle, close when done
 function finish(c, msg)
   local n=0
-  on_write(c,function(c)
+  on_write(c, function(c)
     n=n+c.fd:send(msg, n)
     if n>=#msg then
       c.fd:close()
@@ -135,9 +148,9 @@ end
 ---If already writing, put in outbox
 -- Else start writing and check outbox when done
 function push_send(c, chunk)
-  if bcheck(c.events,EV_OUT) then
+  if bcheck(c.events, EV_OUT) then
     if not c.outbox then c.outbox={chunk}
-    else table.insert(c.outbox,chunk) end
+    else table.insert(c.outbox, chunk) end
   else
     local n=0
     local msg=chunk

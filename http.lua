@@ -124,7 +124,7 @@ end
 ---converts a date into a string appropriate for a HTTP header
 -- ex: Wed, 09 Jun 2021 10:18:14 GMT
 function datetime(utcseconds)
-  return os.date('!%a, %d %b %Y %H:%M:%S %Z',utcseconds)
+  return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
 end
 
 ---get or set a header for context [c]
