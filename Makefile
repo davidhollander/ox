@@ -30,6 +30,7 @@ install:
 	cp core.lua $(LUA)ox/
 	cp http.lua $(LUA)ox/
 	cp file.lua $(LUA)ox/
+	cp data.lua $(LUA)ox/
 
 remove:
 	rm -r $(LUA)ox/

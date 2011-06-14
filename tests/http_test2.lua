@@ -7,7 +7,6 @@ local json = require'json'
 local done = false
 
 http.GET['^/$'] = function(c)
-  print('handling page', json.encode(c))
   local out = {'hello world'}
   local cmsg = http.cookie(c, 'message')
   local hmsg = http.header(c, 'message')
@@ -19,7 +18,6 @@ http.GET['^/$'] = function(c)
     ti(out, hmsg)
     http.header(c, 'message', hmsg)
   end
-  print(json.encode(c))
   http.reply(c, 200, tc(out,', '))
 end
 
@@ -29,8 +27,6 @@ http.fetch {
   jar = {message='hellocookie'},
   head = {message='helloheader'},
   success = function(res)
-    print(json.encode(res))
-    print('fetch success')
     assert(res.status==200, res.status)
     assert(res.body=='hello world, hellocookie, helloheader', 'res.body fail '..res.body)
     assert(res.jar.message=='hellocookie', 'res.jar.message fail ',res.jar.message)

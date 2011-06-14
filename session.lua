@@ -25,7 +25,7 @@ end
 
 function csrf(c)
   if c.data and c.data.token~=user_token[c.user] then
-    http.Respond(c, 401, 'CSRF Failure')
+    http.reply(c, 401, 'CSRF Failure')
   end
 end
 
@@ -41,8 +41,8 @@ function login(c, user)
 end
 
 function logout(c)
-  http.cookie(c,'u','deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT;')
-  local k = usertokey[c.user]
+  http.cookie(c, 'u', 'deleted; expires='..http.datetime(0))
+  local k = user_key[c.user]
   user_key[c.user]=nil
   key_user[k]=nil
 end

@@ -111,7 +111,6 @@ function reply(c, status, body)
     return core.finish_source(c, tc(t), body, '\r\n')
   elseif type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
-    print(tc(t))
     return core.finish(c, tc(t))
   else return core.finish(c, tc(t)) end
 end
@@ -242,7 +241,6 @@ function fetch(req)
         ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
         body=chunkwrap(body)
       end
-      print(tc(t))
       core.send_source(c, tc(t), body, '\r\n')
     elseif type(body)=='string' then
       ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')

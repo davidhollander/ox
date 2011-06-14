@@ -113,7 +113,6 @@ function finish_source(c, head, source, foot)
     end
   end)
 end
-
 function send(c,msg)
   local n=0
   on_write(c, function(c)
@@ -123,19 +122,15 @@ function send(c,msg)
     end
   end)
 end
-
 --[[Send a message until done, checking for disconnects.
 function send(c, msg, cb)
   local n=0
   on_write(c, function(c)
-    print('send on_write', msg)
     local m = c.fd:send(msg, n)
-    if m==nil then c.fd:close() print('send fail') return 'close', cb and cb()
+    if m==nil then c.fd:close() return 'close', cb and cb()
     else
-      print('send sent')
       n=n+m
       if n>=#msg then
-        print('send done')
         stop_write(c)
         return cb and cb(c)
       end
