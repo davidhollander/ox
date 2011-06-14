@@ -95,23 +95,25 @@ end
 function reply(c, status, body)
   local s = status_line[status]
   if not s then return http.err(c) end
+
   local t = {status_line[status]}
   for k,v in pairs(c.res.head or {}) do
-    ti(t, k) ti(t, ':  ') ti(t, v) ti(t, '\r\n')
+    ti(t, k); ti(t, ':  '); ti(t, v); ti(t, '\r\n')
   end
-  for k,v in pairs(c.res.cookie or {}) do
-    ti(t, 'Set-Cookie: ') ti(t, k) ti(t, v) ti(t, '\r\n')
+  for k,v in pairs(c.res.jar or {}) do
+    ti(t, 'Set-Cookie: ') ti(t, k); ti(t, '='); ti(t, v); ti(t, '\r\n')
   end
   if type(body)=='function' then
     if not c.res.head['Content-Length'] then
       ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
       body=chunkwrap(body)
     end
-    return core.finish_source(c, table.concat(t), body, '\r\n')
+    return core.finish_source(c, tc(t), body, '\r\n')
   elseif type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
-    return core.finish(c, table.concat(t))
-  else return core.finish(c, table.concat(t)) end
+    print(tc(t))
+    return core.finish(c, tc(t))
+  else return core.finish(c, tc(t)) end
 end
 
 -- reply_json(c, status, body)
@@ -136,12 +138,9 @@ end
 ---get or set a cookie for context [c]
 -- ex: c:cookie('message','hello; path=/; httponly')
 function cookie(c, key, value)
-  if not value then
-    return c.req.head.Cookie:match(key..'=(%w+)')
-  else c.req.jar[key]=value; return true end
+  if not value then return c.req.jar[key]
+  else c.res.jar[key]=value; return true end
 end
-
-
 
 local web_methods={
   cookie=cookie,
@@ -201,7 +200,7 @@ function serve(port, views, mware)
         c.fd:close()
         return 'close'
       elseif done then
-        c.res={}
+        c.res={head={},jar={}}
         if mware then for i=1,#mware do mware[i](c) end end
         local capture
         for path,fn in pairs(views[parser:method()]) do
@@ -221,8 +220,9 @@ end
 --Make an asynchronous HTTP request [req] and call [cb] with response
 function fetch(req)
   return core.connect(req.host, req.port or 80, function(c)
-    -- build request
-    if not req.head or not req.head.Host then req.head.Host=req.host end
+    
+    req.head = req.head or {}
+    if not req.head.Host then req.head.Host=req.host end
     local t={req.method or 'GET',' ',req.path or '/'}
     if req.qstr then ti(t,'?'); ti(t, qs_encode(req.qstr)) end
     ti(t, " HTTP/1.1\r\n")
@@ -233,7 +233,7 @@ function fetch(req)
       local cookies={}
       ti(t, 'Cookie: ')
       for k, v in pairs(req.jar) do
-        ti(cookies, k); ti(cookies, '='); ti(cookies, v)
+        ti(cookies, tc{k,'=',v})
       end
       ti(t, tc(cookies,';')); ti(t, '\r\n')
     end
@@ -242,28 +242,28 @@ function fetch(req)
         ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
         body=chunkwrap(body)
       end
-      return core.send_source(c, tc(t), body, '\r\n')
+      print(tc(t))
+      core.send_source(c, tc(t), body, '\r\n')
     elseif type(body)=='string' then
       ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
-      return core.finish(c, tc(t))
-    else return core.send(c, tc(t)) end
+      core.send(c, tc(t))
+    else ti(t, '\r\n'); core.send(c, tc(t)) end
 
-    -- parse response
-    local res={head={},jar={}}
+    -- response parser
+    local res={head={},body={},jar={}}
     local done=false
     local parser=lhp.response{
       on_header=function(key,val)
-        if key=='Cookie' then
-          for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
-            res.jar[k]=v
-          end
+        if key=='Set-Cookie' then
+          local k,v = val:match('([^;=%s]+)=([^;=%s]+)')
+          if k and v then res.jar[k]=v end
         else res.head[key]=val end
       end,
       on_body=function(chunk,e) table.insert(res.body,chunk) end,
       on_message_complete=function() done=true end,
       on_headers_complete=function() end,
     }
-    core.on_read(c,function(c)
+    core.on_read(c, function(c)
       local data=c.fd:recv(8192)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 or done then

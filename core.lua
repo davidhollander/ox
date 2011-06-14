@@ -114,33 +114,28 @@ function finish_source(c, head, source, foot)
   end)
 end
 
-
----Send a message until done, checking for disconnects.
-function send(c, msg, cb)
+function send(c,msg)
   local n=0
   on_write(c, function(c)
-    local m = c.fd:send(msg, n) or c.fd:close()
-    if m==true then return 'close', cb and cb()
-    else n=n+m end
+    n=n+c.fd:send(msg, n)
     if n>=#msg then
       stop_write(c)
-      return cb and cb(c)
     end
   end)
 end
 
-function send_source(c, head, source, foot, cb)
+--[[Send a message until done, checking for disconnects.
+function send(c, msg, cb)
   local n=0
-  local msg = head or source()
   on_write(c, function(c)
-    local m = c.fd:send(msg, n) or c.fd:close()
-    if m==true then return 'close', cb and cb()
-    else n=n+m end
-    if n>=#msg then
-      n=0
-      msg = source()
-      if not msg then
-        c.fd:send(foot or '')
+    print('send on_write', msg)
+    local m = c.fd:send(msg, n)
+    if m==nil then c.fd:close() print('send fail') return 'close', cb and cb()
+    else
+      print('send sent')
+      n=n+m
+      if n>=#msg then
+        print('send done')
         stop_write(c)
         return cb and cb(c)
       end
@@ -148,6 +143,28 @@ function send_source(c, head, source, foot, cb)
   end)
 end
 
+
+function send_source(c, head, source, foot, cb)
+  local n=0
+  local msg = head or source()
+  on_write(c, function(c)
+    local m = c.fd:send(msg, n) or c.fd:close()
+    if m==nil then return 'close', cb and cb()
+    else
+      n=n+m
+      if n>=#msg then
+        n=0
+        msg = source()
+        if not msg then
+          c.fd:send(foot or '')
+          stop_write(c)
+          return cb and cb(c)
+        end
+      end
+    end
+  end)
+end
+]]
 ---Buffer the ouput from a pipe, then passes to [cb]
 function buffer_pipe(cb)
   local out={}
@@ -214,6 +231,7 @@ function connect(host, port, cb)
 
   local function _connect(ip, port, cb)
     local sock, e, m = nixio.socket('inet','stream')
+    print('connect', sock, e, m)
     if sock then
       sock:setblocking(false)
       sock:connect(ip, port)
