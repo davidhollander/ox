@@ -4,6 +4,7 @@
 
 -- Controllers for sending files over http and utility functions
 
+local data=require'ox.data'
 local core=require'ox.core'
 local http=require'ox.http'
 local nixio=require'nixio',require'nixio.util'
@@ -11,13 +12,8 @@ local zlib=require'zlib'
 
 module(... or 'ox.file',package.seeall)
 
--- SourceFile, SourcePartial, Compress
--- Loosely based on LTN12 sources
--- See http://lua-users.org/wiki/FiltersSourcesAndSinks
-
--- Source File
--- Iterate to the end of the file
-function source_file(file)
+-- iterate to the end of the file
+local function source_file(file)
   return function()
     if not file then return nil end
     local chunk=file:read(8192)
@@ -30,9 +26,8 @@ function source_file(file)
   end
 end
 
--- Source Partial
--- Iterate for N bytes of the file
-function source_partial(file,n)
+-- iterate for N bytes of the file
+local function source_partial(file,n)
   return function()
     if not file then return nil end
     if n>8192 then m=8192; n=n-8192
@@ -43,7 +38,8 @@ function source_partial(file,n)
   end
 end
 
-function compress(source)
+-- wrap source with streaming GZIP compressor
+local function compress(source)
   local filter=zlib.deflate()
   return function()
     if not filter then return nil end
@@ -53,9 +49,8 @@ function compress(source)
   end
 end
 
--- cache_single
--- Cache a static response into memory using a file
-function cache_single(path)
+-- cache a static response into memory using a file
+function preload(path)
   local f=nixio.open(path)
   if not f then print("Could not cache: "..path) end
   local stats=f:stat()
@@ -63,54 +58,41 @@ function cache_single(path)
   local res=table.concat {
     http.status_line[200],
     'Content-Length: ',#body,'\r\n',
-    'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
-    "Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", stats.mtime),'\r\n',
+    'Content-Type: ',mime_types[path:match('%.(%w+)$')] or 'text/plain','\r\n',
+    "Last-Modified: ",http.datetime(stats.mtime),'\r\n',
     '\r\n',body,'\r\n'
   }
   f:close()
   body=nil f=nil stats=nil
-  return function(c) core.SendEnd(c, res) end
+  return function(c) core.finish(c, res) end
 end	
--- serve_single
--- Checks if file has changed each request and recaches
-function serve_single(path)
-  local res
-  local mtime
-  local function cache(f) 
-    res=table.concat {
-      http.status_line[200],
-      "Last-Modified: ",os.date("!%a, %d %b %Y %H:%M:%S GMT", mtime),'\r\n',
-      'Content-Type: ',mimetypes[path:match('%.(%w+)$')] or 'text/plain','\r\n',
-      '\r\n',
-      f:readall(),
-      '\r\n'
-    }
-  end
-  local function check()
+-- cache a static response into memory for [timeout] duration
+function cache(path, timeout)
+  local mime = mime_types[path:match('%.(%w+)$')] or 'text/plain'
+  local response_cache = data.cache_single(function(cb)
     local f=nixio.open(path)
-    local d=f:stat().mtime
-    if d~=mtime then mtime=d; cache(f) end
-  end
-  return function(c) check() core.SendEnd(c, res) end
+    local stats=f:stat()
+    local body=f:readall()
+    cb(table.concat {
+      http.status_line[200],
+      'Content-Length: ',#body,'\r\n',
+      'Content-Type: ',mime,'\r\n',
+      'Last-Modified: ',http.datetime(stats.mtime),'\r\n\r\n',
+      body,'\r\n'
+    })
+  end)
+  return function(c) response_cache(function(res) core.finish(c, res) end) end
 end
-
--- cache_folder
-function cachefolder(path, maxfile, maxtotal)
-
-end
-
--- simple_handler
--- Serves files from a directory without cacheing
--- Only supports 200 and 404, Content-Type
-function simple_handler(dir)
+-- turn a folder into a HTTP file handler
+-- does not support GZIP or partial requests
+function folder_simple(dir)
   local dir=dir:match('^(.+)/?$')
   return function(c, path)
-    if path:match('%.%.') then http.Respond(c, 404) end
-    f=nixio.open(dir..'/'..path)
-    if not f then return http.Respond(c, 404) end
+    f=not path:match('%.%.') and nixio.open(dir..'/'..path)
+    if not f then return http.reply(c, 404) end
     local ext=path:match('%.(%w+)$')
     local mime=mime_types[ext] or 'application/octet-stream'
-    http.header(c,'Content-Type',mime)
+    http.header(c,'Content-Type', mime)
     local stats=f:stat()
     http.header(c, 'Last-Modified', http.datetime(stats.mtime))
     http.header(c, 'Content-Length', stats.size)
@@ -118,43 +100,51 @@ function simple_handler(dir)
   end
 end
 
-
--- partial_seek
---If Range header is correct, seek file and returns bytes to read
-local function partial_seek(f, header)
-  if header then
-    local start, stop=rangeheader:match('(%d+)%s*-%s*(%d+)')
-    if start and stop then
-      start=tonumber(start);stop=tonumber(stop)
-      local n=stop-start
-      if n>0 and f:seek(start,"set") then
-        return n
-      end
-    end
-  end
-  return nil
-end
-
---turn a folder into a HTTP file handler
-function folder_handler(dir)
+--turn a folder into a HTTP file handler with streaming GZIP and partial request support
+function folder(dir, config)
   local dir=dir:match('^(.+)/?$')
   return function(c,path)
+    local reqh=c.req.head
+    local resh=c.res.head
     local f = not path:match('%.%.') and nixio.open(dir..'/'..path)
     if not f then return http.reply(c, 404) end
-    local body={}
+    local body
     local mime=mime_types[path:match('%.(%w+)$')] or 'application/octet-stream'
     local stats=f:stat()
     --http.header(c, 'Cache-Control','max-age=3600, must-revalidate')
-    http.header(c, 'Content-Type', mime)
-    http.header(c, 'Last-modified', http.datetime(stats.mtime))
-    if string.match(http.header(c, 'Accept-Encoding') or '', 'gzip') then
-      c.res.head['Content-Encoding']='gzip'
-    else http.header(c, 'Content-Length', stats.size) end
-    local n = partial_seek(f, http.header(c,'Range'))
-    if n then return http.reply(c, 206, source_partial(f,n))
-    else return http.reply(c, 200, source_file(f)) end
+    resh['Content-Type']=mime
+    resh['Accept-Ranges']='bytes'
+    resh['Last-modified']=http.datetime(stats.mtime)
+
+    -- partial content
+    if reqh.Range then
+      local start, stop = reqh.Range:match('(%d+)%s*-%s*(%d+)')
+      local start, stop = tonumber(start), tonumber(stop)
+      local n = start and stop and stop - start + 1
+      if not n or n<=0 then
+        resh['Content-Range']= tc {'bytes */',stats.size}
+        return http.reply(c, 416) -- bad request range
+      else
+        f:seek('set', start)
+        resh['Content-Range']= tc {'bytes ',start,'-',stop,'/',stats.size}
+        resh['Content-Length']=n
+        return http.reply(c, 206, source_partial(f, n))
+      end
+    end
+    
+    -- gzip
+    if string.match(reqh['Accept-Encoding'] or '', 'gzip') then
+      resh['Content-Encoding']='gzip'
+      return http.reply(c, 200, compress(source_file(f)))
+    else
+      resh['Content-Length']=stats.size
+      return http.reply(c, 200, source_file(f))
+    end
   end
 end
+
+-- To add: functions for preloading folder into memory,
+-- folder function that caches small GZIP files into memory
 
 mime_types = {
   ez = "application/andrew-inset",

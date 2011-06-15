@@ -5,6 +5,7 @@
 -- asynchronous caches and data structures
 
 local ti, tc, ts =table.insert, table.concat, table.sort
+
 module(... or 'ox.data',package.seeall)
 -- pools requests for update(cb) and caches response for [timeout] duration
 -- return lambda(cb)
