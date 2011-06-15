@@ -15,15 +15,12 @@ apt2:
 
 rocks:
 	luarocks install nixio
-	luarocks install http-parser
+	luarocks install lua-http-parser
 	luarocks install json4lua
 cmake:
 	git clone https://github.com/brimworks/lua-zlib.git
-	cd lua-zlib
-	cmake .
-	make
-	make install
-
+	cd lua-zlib/ && cmake . && make && make install
+	rm -r -f lua-zlib/
 
 install:
 	mkdir -p $(LUA)ox/
