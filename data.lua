@@ -41,8 +41,9 @@ function pool_single(update)
     else
       waiting={cb}
       update(function(val)
-        for i,fn in ipairs(waiting) do fn(val) end
+        local waiting_old=waiting
         waiting=false
+        for i,fn in ipairs(waiting_old) do fn(val) end
       end)
     end
   end
@@ -54,9 +55,10 @@ function pool_table(update)
     if waiting[key] then ti(waiting[key], cb)
     else
       waiting[key]={cb}
-      update(function(val)
-        for i,fn in ipairs(waiting) do fn(val) end
+      update(key, function(val)
+        local waiting_old=waiting[key]
         waiting[key]=nil
+        for i,fn in ipairs(waiting_old) do fn(val) end
       end)
     end
   end
@@ -93,15 +95,16 @@ function cache_table(update, timeout)
   local waiting={}
   return function(key, cb)
     if not cb then times[key]=nil; values[key]=nil
-    elseif times[key] and times[key]>(os.time()-timeout) then cb(values[key])
+    elseif times[key] and times[key]>os.time() then cb(values[key])
     elseif waiting[key] then ti(waiting[key], cb)
     else
       waiting[key]={cb}
-      update(function(val)
+      update(key, function(val)
         values[key]=val
-        times[key]=os.time()
-        for i,fn in ipairs(waiting) do fn(val) end
+        times[key]=os.time()+timeout
+        local waiting_old=waiting[key]
         waiting[key]=nil
+        for i,fn in ipairs(waiting_old) do fn(val) end
       end)
     end
   end
