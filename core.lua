@@ -3,7 +3,7 @@
 -- Released under the simplified BSD license, see LICENSE.txt
 
 -- An event loop and utility functions
-
+local data=require'ox.data'
 local nixio=require 'nixio'
 local bcheck=nixio.bit.check
 local bset=nixio.bit.set
@@ -158,8 +158,7 @@ function send_source(c, head, source, foot, cb)
       end
     end
   end)
-end
-]]
+end]]
 ---Buffer the ouput from a pipe, then passes to [cb]
 function buffer_pipe(cb)
   local out={}
@@ -219,7 +218,14 @@ function call_fork(fn, cb)
   end
 end
 
-local host_cache={}
+-- asynchronous DNS lookup pooler and cache
+local host_cache = data.cache_table(function(host, cb)
+  call_fork(function()
+    local x = nixio.getaddrinfo(host, 'inet', port)
+    return x and x[1].address or nil
+  end, cb)
+end, 1000)
+
 ---Create a connection to [host] on [port] and pass to [cb]
 -- If [host] is not an ip address, fork and wait for DNS loopup, then cache ip
 function connect(host, port, cb)
@@ -237,17 +243,10 @@ function connect(host, port, cb)
     else return nil, e, m end
   end
 
-  local ip = host:match('^%d+\.%d+\.%d+\.%d+$') or host_cache[host]
+  local ip = host:match('^%d+\.%d+\.%d+\.%d+$')
   if ip then return _connect(ip, port, cb)
   else
-    call_fork(function()
-      local x = nixio.getaddrinfo(host, 'inet', port)
-      return x and x[1].address or nil
-    end,
-    function(ip)
-      host_cache[host]=ip
-      _connect(ip, port, cb)
-    end)
+    host_cache(host, function(ip) print(ip) _connect(ip, port, cb) end)
   end
 end
 
