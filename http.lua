@@ -12,15 +12,46 @@ local ti = table.insert
 module(... or 'ox.http',package.seeall)
 
 status_line={
+  [100]="HTTP/1.1 100 Continue\r\n",
+  [101]="HTTP/1.1 101 Switching Protocols\r\n",
   [200]="HTTP/1.1 200 OK\r\n",
   [201]="HTTP/1.1 201 Created\r\n",
+  [202]="HTTP/1.1 202 Accepted\r\n",
+  [203]="HTTP/1.1 203 Non-Authoritative Information\r\n",
+  [204]="HTTP/1.1 204 No Content\r\n",
+  [205]="HTTP/1.1 204 Reset Content\r\n",
   [206]="HTTP/1.1 206 Partial Content\r\n",
+  [300]="HTTP/1.1 300 Multiple Choices\r\n",
+  [301]="HTTP/1.1 301 Moved Permanently\r\n",
   [303]="HTTP/1.1 303 See Other\r\n",
+  [304]="HTTP/1.1 304 Not Modified\r\n",
+  [307]="HTTP/1.1 307 Temporary Redirect\r\n",
   [400]="HTTP/1.1 400 Bad Request\r\n",
   [401]="HTTP/1.1 401 Unauthorized\r\n",
+  [403]="HTTP/1.1 403 Forbidden\r\n",
   [404]="HTTP/1.1 404 Not Found\r\n",
+  [405]="HTTP/1.1 405 Method Not Allowed\r\n",
+  [406]="HTTP/1.1 406 Not Acceptable\r\n",
+  [407]="HTTP/1.1 407 Proxy Authentication Required\r\n",
+  [408]="HTTP/1.1 408 Request Timeout\r\n",
+  [409]="HTTP/1.1 409 Conflict\r\n",
+  [410]="HTTP/1.1 410 Gone\r\n",
+  [411]="HTTP/1.1 411 Length Required\r\n",
+  [412]="HTTP/1.1 412 Precondition Failed\r\n",
+  [413]="HTTP/1.1 413 Request Entity Too Large\r\n",
+  [414]="HTTP/1.1 414 Request URI Too Long\r\n",
+  [415]="HTTP/1.1 415 Unsupported Media Type\r\n",
+  [416]="HTTP/1.1 416 Request Range Not Satisfiable\r\n",
+  [417]="HTTP/1.1 417 Expectation Failed\r\n",
+  [418]="HTTP/1.1 418 I'm a teapot\r\n", -- win.
   [500]="HTTP/1.1 500 Internal Server Error\r\n",
+  [501]="HTTP/1.1 501 Not Implemented\r\n",
+  [502]="HTTP/1.1 502 Bad Gateway\r\n",
+  [503]="HTTP/1.1 503 Service Unavailable\r\n",
+  [504]="HTTP/1.1 504 Gateway Timeout\r\n",
+  [505]="HTTP/1.1 505 HTTP Version Not Supported\r\n",
 }
+
 GET,PUT,POST,DELETE={},{},{},{}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
