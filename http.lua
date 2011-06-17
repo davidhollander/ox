@@ -125,7 +125,7 @@ end
 -- If a function, the response ends when [body] returns 'nil'.
 function reply(c, status, body)
   local s = status_line[status]
-  if not s then return http.err(c) end
+  if not s then return server_error(c,'Bad response status: '..status) end
 
   local t = {status_line[status]}
   for k,v in pairs(c.res.head or {}) do
@@ -145,6 +145,11 @@ function reply(c, status, body)
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
     return core.finish(c, tc(t))
   else return core.finish(c, tc(t)) end
+end
+
+function server_error(c, err)
+  core.log('500',err)
+  return core.finish(c, tc{status_line[500],'\r\n',err,'\r\n'})
 end
 
 -- reply_json(c, status, body)
@@ -238,7 +243,7 @@ function serve(port, views, mware)
           capture=req.path:match(path)
           if capture then
             local success,err=pcall(fn,c,capture)
-            if not success then reply(c, 500, err); core.log(500, err) end
+            if not success then server_error(c, err) end
             break
           end
         end
