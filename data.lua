@@ -53,4 +53,31 @@ function cache_table(update, timeout)
   end
 end
 
-
+---create a buffer for pushing unorded items into ordered lists
+--@ param sort   sorting function used by table.sort
+--@ param limit  number of items to return
+--@ ret lambda   lambda(): return ordered list, count. lambda(item): add item.
+function obuffer(sort, n, skip)
+  local stop=n+1+(skip or 0)
+  local m=2*n+(skip or 0)
+  local count=0
+  local out={}
+  local function trim()
+    ts(out, sort)
+    for i=#out,stop,-1 do out[i]=nil end
+  end
+  return function(item)
+    if not item then trim()
+      if not skip then return out, count
+      else
+        local t={}
+        for i=1,n do t[i]=out[skip+i] end
+        return t, count
+      end
+    else
+      count=count+1
+      ti(out, item)
+      if #out>m then trim() end
+    end
+  end
+end
