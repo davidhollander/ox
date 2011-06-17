@@ -9,7 +9,7 @@ local core=require'ox.core'
 local http=require'ox.http'
 local nixio=require'nixio',require'nixio.util'
 local zlib=require'zlib'
-
+local ti, tc =table.insert, table.concat
 module(... or 'ox.file',package.seeall)
 
 -- iterate to the end of the file
@@ -120,12 +120,13 @@ function folder(dir, config)
     if reqh.Range then
       local start, stop = reqh.Range:match('(%d+)%s*-%s*(%d+)')
       local start, stop = tonumber(start), tonumber(stop)
+      print(start, stop, type(start), type(stop))
       local n = start and stop and stop - start + 1
       if not n or n<=0 then
         resh['Content-Range']= tc {'bytes */',stats.size}
         return http.reply(c, 416) -- bad request range
       else
-        f:seek('set', start)
+        f:seek(start,'set')
         resh['Content-Range']= tc {'bytes ',start,'-',stop,'/',stats.size}
         resh['Content-Length']=n
         return http.reply(c, 206, source_partial(f, n))
