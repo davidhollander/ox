@@ -113,8 +113,8 @@ function folder(dir, config)
     local stats=f:stat()
     --http.header(c, 'Cache-Control','max-age=3600, must-revalidate')
     resh['Content-Type']=mime
-    resh['Accept-Ranges']='bytes'
-    resh['Last-modified']=http.datetime(stats.mtime)
+    --resh['Accept-Ranges']='bytes'
+    resh['Last-Modified']=http.datetime(stats.mtime)
 
     -- partial content
     if reqh.Range then

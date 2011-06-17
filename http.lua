@@ -136,9 +136,10 @@ function reply(c, status, body)
   end
   if type(body)=='function' then
     if not c.res.head['Content-Length'] then
-      ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
+      ti(t, 'Transfer-Encoding: chunked\r\n')
       body=chunkwrap(body)
     end
+    ti(t, '\r\n')
     return core.finish_source(c, tc(t), body, '\r\n')
   elseif type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
@@ -277,7 +278,6 @@ function fetch(req)
       ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
       core.send(c, tc(t))
     else ti(t, '\r\n'); core.send(c, tc(t)) end
-
     -- response parser
     local res={head={},body={},jar={}}
     local done=false
@@ -288,7 +288,7 @@ function fetch(req)
           if k and v then res.jar[k]=v end
         else res.head[key]=val end
       end,
-      on_body=function(chunk,e) table.insert(res.body,chunk) end,
+      on_body=function(chunk) table.insert(res.body,chunk) end,
       on_message_complete=function() done=true end,
       on_headers_complete=function() end,
     }
