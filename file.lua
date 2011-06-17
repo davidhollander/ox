@@ -42,10 +42,10 @@ end
 local function compress(source)
   local filter=zlib.deflate()
   return function()
-    if not filter then return nil end
-    local chunk=filter(source())
-    if not chunk then filter=nil end
-    return chunk
+    if not source then filter=nil; return nil end
+    local chunk=source()
+    if not chunk then source=nil; return filter()
+    else return filter(chunk) end
   end
 end
 
@@ -133,9 +133,9 @@ function folder(dir, config)
       end
     end
     
-    -- gzip
-    if string.match(reqh['Accept-Encoding'] or '', 'gzip') then
-      resh['Content-Encoding']='gzip'
+    -- streaming compression
+    if string.match(reqh['Accept-Encoding'] or '', 'deflate') then
+      resh['Content-Encoding']='deflate'
       return http.reply(c, 200, compress(source_file(f)))
     else
       resh['Content-Length']=stats.size

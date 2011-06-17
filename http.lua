@@ -113,8 +113,11 @@ end
 -- transforms the output of a function to HTTP Chunked encoding
 function chunkwrap(source)
   return function()
-    local m=source()
-    return table.concat{string.format('%x',#m),'\r\n',m,'\r\n'}
+    if source then
+      local m=source()
+      if m then return tc{string.format('%x', #m), '\r\n', m, '\r\n'}
+      else source=nil; return '0\r\n' end
+    end
   end
 end
 

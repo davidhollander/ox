@@ -98,16 +98,17 @@ end
 ---Send a chunk on every cycle starting with [head]
 -- when [source] returns nil, send [foot] and close.
 function finish_source(c, head, source, foot)
-  print('finish source',foot)
+  print ' finish source '
   local n=0
   local msg=head or source()
   on_write(c, function(c)
-    print('finish source: ', c, msg)
+    print(msg)
     n=n+c.fd:send(msg,n)
     if n==#msg then
       n=0
       msg=source()
       if not msg then
+        print(foot)
         c.fd:send(foot or '')
         c.fd:close()
         return 'close'
