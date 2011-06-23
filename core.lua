@@ -222,7 +222,7 @@ function call_fork(fn, cb)
 end
 
 -- asynchronous DNS lookup pooler and cache
-local host_cache = data.cache_table(function(host, cb)
+local host_cache = data.cache1(function(host, cb)
   call_fork(function()
     local x = nixio.getaddrinfo(host, 'inet', port)
     return x and x[1].address or nil

@@ -9,7 +9,7 @@ local ti, tc, ts =table.insert, table.concat, table.sort
 module(... or 'ox.data',package.seeall)
 -- pools requests for update(cb) and caches response for [timeout] duration
 -- return lambda(cb)
-function cache_single(update, timeout)
+function cache0(update, timeout)
   local value
   local time=0
   local waiting=false
@@ -32,7 +32,7 @@ end
 
 -- pools requests for update(key, cb) and caches response for [timeout] duration
 -- return lambda(key, cb)
-function cache_table(update, timeout)
+function cache1(update, timeout)
   local values={}
   local times={}
   local waiting={}

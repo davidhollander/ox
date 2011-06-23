@@ -4,7 +4,7 @@ local nixio = require'nixio'
 local tc=table.concat
 local count={}
 local timeout=2
-local my_cache_table = data.cache_table(function(key, cb)
+local my_cache_table = data.cache1(function(key, cb)
   print 'computing update in fork...'
   count[key]=count[key] and count[key]+1 or 1
   core.call_fork(function() nixio.nanosleep(1); return key..','..count[key] end, cb)
