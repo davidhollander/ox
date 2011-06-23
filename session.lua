@@ -33,7 +33,7 @@ function login(c, user)
   local key, u
   repeat
     u=string.format('%x',math.random(10e10))
-    key=table.concat{u,c.fd:getpeername(),c.req.headers['User-Agent']}
+    key=table.concat{u,c.fd:getpeername(),c.req.head['User-Agent']}
   until not keys[key]
   key_user[key]=user
   user_key[user]=key
@@ -41,7 +41,7 @@ function login(c, user)
 end
 
 function logout(c)
-  http.cookie(c, 'u', 'deleted; expires='..http.datetime(0))
+  c.res.jar.u='deleted; expires='..http.datetime(0)
   local k = user_key[c.user]
   user_key[c.user]=nil
   key_user[k]=nil

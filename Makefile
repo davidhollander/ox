@@ -28,6 +28,7 @@ install:
 	cp http.lua $(LUA)ox/
 	cp file.lua $(LUA)ox/
 	cp data.lua $(LUA)ox/
+	cp session.lua $(LUA)ox/
 
 remove:
 	rm -r $(LUA)ox/
