@@ -42,7 +42,7 @@ Require packages:
 Add a handler:
 
     http.GET ['^/$'] = function(c)
-      http.reply(c, 200, "Hello World")
+      c:reply(200, "Hello World")
     end
 Add a server:
 
