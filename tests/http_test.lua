@@ -131,6 +131,6 @@ local function dotest()
 end
 dotest()
 
-http.serve(port, http)
+http.serve(port)
 core.loop(timeout)
 print('pass.')

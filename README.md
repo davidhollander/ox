@@ -46,7 +46,7 @@ Add a handler:
     end
 Add a server:
 
-    http.serve(8080, http)
+    http.serve(8080)
 Start the event loop:
 
     print(8080)

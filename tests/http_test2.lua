@@ -36,7 +36,7 @@ http.fetch {
   end,
 }
 
-http.serve(port, http)
+http.serve(port)
 core.loop()
 assert(done)
 print('pass.')
