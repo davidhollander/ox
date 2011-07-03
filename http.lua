@@ -53,6 +53,7 @@ status_line={
 }
 
 GET,PUT,POST,DELETE={},{},{},{}
+local handlers={GET=GET,PUT=PUT,POST=POST,DELETE=DELETE}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
 --- Decode a url string
@@ -76,6 +77,8 @@ function url_encode(str)
 end
 
 --- Parse query string or form body
+-- @param qstr string
+-- @return table
 function qs_decode(qstr)
   local t={}
   for k,v in string.gmatch(qstr, "([^&=]+)=([^&=]*)&?") do
@@ -85,7 +88,9 @@ function qs_decode(qstr)
   return t
 end
 
----Encode query string or form body
+--- Encode query string or form body
+-- @param table
+-- @return string
 function qs_encode(t)
   local out={}
   for k,v in pairs(t) do
@@ -111,7 +116,7 @@ end
 
 -- chunkwrap(source)
 -- transforms the output of a function to HTTP Chunked encoding
-function chunkwrap(source)
+local function chunkwrap(source)
   return function()
     if source then
       local m=source()
@@ -122,10 +127,9 @@ function chunkwrap(source)
 end
 
 ---Send an HTTP response and close connection when done.
---@param c the connection table to affect
---@param status the HTTP status code number
---@param body can be nil, a string, or a function.
--- If a function, the response ends when [body] returns 'nil'.
+--@param c table. The connection this applies to.
+--@param status number. The HTTP status code.
+--@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
 function reply(c, status, body)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
@@ -168,39 +172,22 @@ function datetime(utcseconds)
   return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
 end
 
----get or set a header for context [c]
-function header(c, key, value)
-  if not value then return c.req.head[key]
-  else c.res.head[key]=value; return true end
-end
-
----get or set a cookie for context [c]
--- ex: c:cookie('message','hello; path=/; httponly')
-function cookie(c, key, value)
-  if not value then return c.req.jar[key]
-  else c.res.jar[key]=value; return true end
-end
-
-local web_methods={
-  cookie=cookie,
-  header=header,
-  reply=reply,
+local web_methods={reply=reply}
+local web_mt={
+  __index=function(t,k) return web_methods[k] or rawget(t,k) end
 }
-
--- web(c): optional middleware for wrapping contexts with helpers
-function web(c) return setmetatable(c, methods) end
-
 
 local decoders={
   ['application/x-www-form-urlencoded']=qs_decode,
   ['application/json']=json.decode,
 }
 
----Add a server on [port].
---[views a table containing subtables for each HTTP method you wish to support.
---Each entry in a method table should use a lua pattern string as a key, and a function accepting a connection table and any pattern captures as the value.
---@param mware List of functions to pass the connection table through before calling a handler. Optional
-function serve(port, views, mware)
+---Add a server. Automatically routes accepted connections to handler functions placed in the
+-- http.GET, http.PUT, http.POST, and http.DELETE method tables using a lua pattern string for keys.
+-- @param port port number to listen on
+-- @param mware List of functions to pass the connection table through before calling a handler. Optional
+-- @return True or nil, Error Message.
+function serve(port, mware)
   return core.serve(port, function(c)
     c.req={head={},jar={}}
     local req, done, buffer = c.req, false, {}
@@ -232,20 +219,21 @@ function serve(port, views, mware)
         end
       end
     }
-    core.on_read(c,function(c)
+    core.on_read(c, function(c)
       local data=c.fd:recv(1024)
       if data==false then return 
       elseif data==nil or data=='' or parser:execute(data)==0 then
         c.fd:close()
         return 'close'
       elseif done then
+        setmetatable(c, web_mt)
         c.res={head={},jar={}}
         if mware then for i=1,#mware do mware[i](c) end end
         local capture
-        for path,fn in pairs(views[parser:method()]) do
-          capture=req.path:match(path)
-          if capture then
-            local success,err=pcall(fn,c,capture)
+        for path,fn in pairs(handlers[parser:method()]) do
+          capture={req.path:match(path)}
+          if #capture>0 then
+            local success, err=pcall(fn,c,unpack(capture))
             if not success then server_error(c, err) end
             break
           end
@@ -256,7 +244,19 @@ function serve(port, views, mware)
   end)
 end
 
---Make an asynchronous HTTP request [req] and call [cb] with response
+--- Make an asynchronous HTTP request
+-- @param req
+--  - host: string. Default: localhost
+--  - port: number. Default: 80
+--  - method: string. Default: GET
+--  - path: string. Default: /
+--  - qstr: table of query string variables. Optional
+--  - head: table of http request headers. Optional. Host header included automatically.
+--  - jar: table of cookies. Optional.
+--  - [number]: function to handle a specific HTTP response status code. Optional.
+--  - success: function to handle all 20x responses. Optional.
+--  - redirect: function to handle all 30x responses. Optional.
+--  - error: function to handle all 40x and 50x responses. Optional.
 function fetch(req)
   return core.connect(req.host, req.port or 80, function(c)
     
