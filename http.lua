@@ -238,7 +238,7 @@ function serve(port, mware)
             break
           end
         end
-        if not capture then reply(c, 404) end
+        if not capture or #capture<1 then reply(c, 404) end
       end
     end)
   end)
