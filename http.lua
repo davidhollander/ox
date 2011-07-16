@@ -9,6 +9,7 @@ local lhp=require'http.parser'
 local json=require'json'
 local tc = table.concat
 local ti = table.insert
+local hosts={}
 module(... or 'ox.http',package.seeall)
 
 status_line={
@@ -182,51 +183,92 @@ local decoders={
   ['application/json']=json.decode,
 }
 
+function CRLF_lines(c, bytes)
+  local init=1
+  if c.border then
+    if bytes:sub(1,1)=='\n' then
+      c:state(tc(c.buffer))
+      if c.closed then return end
+      c.buffer={}
+      init=2
+    else ti(c.buffer, '\n') end
+    c.border=nil
+  end
+  while true do
+    local h = bytes:find('\r', init)
+    if h then 
+      if h==#bytes then
+        c.border=true
+        ti(c.buffer, bytes:sub(init,-2))
+        break
+      elseif #c.buffer==0 then
+        c:state(bytes:sub(init, h-1))
+        if c.closed then return end
+      else
+        ti(c.buffer, bytes:sub(init, h-1))
+        c:state(tc(c.buffer))
+        if c.closed then return end
+        c.buffer={}
+      end
+      init=h+2
+    else ti(c.buffer, bytes:sub(init, #bytes)); break end
+  end
+end
+
 function parser()
+  print 'parser'
   local hosts={}
   
   local function head(c, line)
+    print('head',line)
     if line=='' then
-      local h = hosts[c.req.head.host or false]
-      if not h then return reply(c, 404) end
-      return h(c)
+      local h = c.req.head.Host
+      local host = hosts[h and h:match'[%w%.]+' or false] or hosts[true]
+      if not host then
+        print('host not found',h,host)
+        return reply(c, 404)
+      else print 'host found'; return host(c) end
     end
     local key, value = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
+    print('kv',key,value)
     if not key then return reply(c, 400) end
     c.req.head[key]=value
   end
   
-  local _methods={GET=true,POST=true,DELETE=true,PUT=true}
+  local _methods={GET=true, POST=true, DELETE=true, PUT=true}
   local function status(c, line)
+    print('status', line)
     local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
     if not _methods[method] then c.fd:close(); c.closed=true return
     else c.req.method=method; c.req.path=path; c.state=head; c.req.head={} end
   end
 
   local function read(c)
-    local d, err = c.fd:read(8192)
-    if err then c.fd:closed(); c.closed=true; return
-    elseif d==false then return end
-    local init=1
-    if c.border then
-      if d:sub(1,1)=='\n' then c:state(c.buffer); init=2
-      else c.buffer=c.buffer..'\r'; c.border=nil end
-    end
-    local h = string.find(d, '\r', init)
+    print 'read'
+    local bytes, err = c.fd:read(8192)
+    if err then c.fd:closed(); c.closed=true; print 'closed' return
+    elseif bytes==false then return
+    else CRLF_lines(c, bytes) end
   end
 
   return setmetatable(hosts,{
     __call = function(_, c)
-      c.req={}
-      c.state=status
-      c.read=read
+      print 'parser'
+      c.req = {}
+      c.res={head={},jar={}}
+      c.buffer={}
+      c.state = status
+      core.on_read(c, read)
     end
   })
 end
 
-function host(t)
-  return setmetatable(t or {},{
+function host(name)
+  local t={GET={},POST={}}
+  hosts[name]=t
+  return setmetatable(t or {GET={},POST={}},{
     __call = function(methods, c)
+      print 'host'
       local m = methods[c.req.method]
       if not m then return reply(c, 405) end
       local h, capture

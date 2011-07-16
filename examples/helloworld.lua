@@ -1,14 +1,13 @@
 local core=require'ox.core'
 local http=require'ox.http'
 
-local p = http.parser()
-local site = http.host()
-s.localhost = site
+local site = http.host 'localhost'
 
 site.GET['^/$'] = function(c)
+  print 'handling'
   c:reply(200, "Hello World")
 end
 
-core.serve(8080, p)
+http.serve(8080, {localhost=site})
 print(8080)
 core.loop()
