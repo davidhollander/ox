@@ -16,7 +16,7 @@ module('ox.session',package.seeall)
 
 -- Check
 function check(c)
-  local u = http.cookie(c, 'u')
+  local u =c.res.jar.u
   if u then 
     key=tc{u, c.fd:getpeername(), h['User-Agent']}
     c.user=key_user[key]
@@ -34,10 +34,10 @@ function login(c, user)
   repeat
     u=string.format('%x',math.random(10e10))
     key=table.concat{u,c.fd:getpeername(),c.req.head['User-Agent']}
-  until not keys[key]
+  until not key_user[key]
   key_user[key]=user
   user_key[user]=key
-  http.cookie(c, 'u', u..'; httponly')
+  c.res.jar.u=u..'; httponly'
 end
 
 function logout(c)

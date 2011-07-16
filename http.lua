@@ -214,9 +214,9 @@ function serve(port, mware)
       on_headers_complete=function()
         local cl=c.req.head['Content-Length']
         local te=c.req.head['Transfer-Encoding']
-        if cl and cl>8192 or te and te=='chunked' then
+        --[[if cl and cl>8192 or te and te=='chunked' then
           done=true
-        end
+        end]]
       end
     }
     core.on_read(c, function(c)
