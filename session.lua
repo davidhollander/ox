@@ -16,11 +16,13 @@ module('ox.session',package.seeall)
 
 -- Check
 function check(c)
-  local u =c.res.jar.u
+  print 'check'
+  local u =c.req.jar.u
   if u then 
-    key=tc{u, c.fd:getpeername(), h['User-Agent']}
+    key=tc{u, c.fd:getpeername(), c.req.head['User-Agent']}
     c.user=key_user[key]
   end
+  print(u,c.user)
 end
 
 function csrf(c)
@@ -33,11 +35,12 @@ function login(c, user)
   local key, u
   repeat
     u=string.format('%x',math.random(10e10))
-    key=table.concat{u,c.fd:getpeername(),c.req.head['User-Agent']}
+    key=tc{u,c.fd:getpeername(),c.req.head['User-Agent']}
   until not key_user[key]
   key_user[key]=user
   user_key[user]=key
   c.res.jar.u=u..'; httponly'
+  print ('login',key,c.res.jar.u)
 end
 
 function logout(c)
