@@ -53,7 +53,7 @@ function cache1(update, timeout)
   end
 end
 
-local serialize
+serialize=true
 local t_serialize = {
   ['function'] = function(v) return string.dump(v) end,
   table = function(v)
