@@ -16,9 +16,11 @@ Later, experimental branches including virtual hosts, RPC, and a rewrite for the
 
 ### Other
 Install the dependencies with rock files:
+
 * luarocks install nixio
 * luarocks install json4lua 
 * luarocks install lua-http-parser
+
 Install lua-zlib: https://github.com/brimworks/lua-zlib
 
 ## Getting started
