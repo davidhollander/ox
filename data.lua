@@ -65,6 +65,9 @@ local t_serialize = {
   end,
   string = function(v)
     return string.format('%q',v)
+  end,
+  boolean = function(v)
+    return v and 'true' or 'false'
   end
 }
 serialize = function(v)
