@@ -181,6 +181,37 @@ local decoders={
   ['application/x-www-form-urlencoded']=qs_decode,
   ['application/json']=json.decode,
 }
+function CRLF_lines(c, bytes)
+  local init=1
+  if c.border then
+    if bytes:sub(1,1)=='\n' then
+      c:state(tc(c.buffer))
+      if c.closed then return end
+      c.buffer={}
+      init=2
+    else ti(c.buffer, '\n') end
+    c.border=nil
+  end
+  while true do
+    local h = bytes:find('\r', init)
+    if h then 
+      if h==#bytes then
+        c.border=true
+        ti(c.buffer, bytes:sub(init,-2))
+        break
+      elseif #c.buffer==0 then
+        c:state(bytes:sub(init, h-1))
+        if c.closed then return end
+      else
+        ti(c.buffer, bytes:sub(init, h-1))
+        c:state(tc(c.buffer))
+        if c.closed then return end
+        c.buffer={}
+      end
+      init=h+2
+    else ti(c.buffer, bytes:sub(init, #bytes)); break end
+  end
+end
 
 ---Add a server. Automatically routes accepted connections to handler functions placed in the
 -- http.GET, http.PUT, http.POST, and http.DELETE method tables using a lua pattern string for keys.
@@ -189,60 +220,49 @@ local decoders={
 -- @return True or nil, Error Message.
 function serve(port, mware)
   return core.serve(port, function(c)
-    c.req={head={},jar={}}
-    local req, done, buffer = c.req, false, {}
-    local function complete() end
-    local parser=lhp.request{
-      on_url=function(url) req.url=url end,
-      on_path=function(path) req.path=path end,
-      on_header=function(key,val)
-        if key=='Cookie' then
-          for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
-            req.jar[k]=v
-          end
-        else req.head[key]=val end
-      end,
-      on_query_string=function(qstr) req.qstr=qs_decode(qstr) end,
-      on_fragment=function(frag) req.frag=frag end,
-      on_body=function(body) table.insert(buffer, body) end,
-      on_message_complete=function()
-        req.body=table.concat(buffer)
-        local d=decoders[req.head['Content-Type']]
-        if d then req.data = d(req.body) end
-        done=true
-      end,
-      on_headers_complete=function()
-        local cl=c.req.head['Content-Length']
-        local te=c.req.head['Transfer-Encoding']
-        if cl and cl>8192 or te and te=='chunked' then
-          done=true
-        end
+
+    local function route(c)
+      local m = handlers[c.req.method]
+      if not m then return reply(c, 405) end
+
+      local p = c.req.path
+      for k,v in pairs(m) do
+        local capture = {p:match(k)}
+        if #capture>0 then return v(c, unpack(capture)) end
       end
-    }
-    core.on_read(c, function(c)
-      local data=c.fd:recv(1024)
-      if data==false then return 
-      elseif data==nil or data=='' or parser:execute(data)==0 then
-        c.fd:close()
-        return 'close'
-      elseif done then
-        setmetatable(c, web_mt)
-        c.res={head={},jar={}}
-        if mware then for i=1,#mware do mware[i](c) end end
-        local capture
-        for path,fn in pairs(handlers[parser:method()]) do
-          capture={req.path:match(path)}
-          if #capture>0 then
-            local success, err=pcall(fn,c,unpack(capture))
-            if not success then server_error(c, err) end
-            break
-          end
-        end
-        if not capture or #capture<1 then reply(c, 404) end
-      end
-    end)
+      return reply(c, 404)
+    end
+
+    local function head(c, line)
+      if line=='' then return route(c) end
+      local key, value = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
+      if not key then return reply(c, 400) end
+      c.req.head[key]=value
+    end
+    
+    local _methods={GET=true, POST=true, DELETE=true, PUT=true}
+    local function status(c, line)
+      local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
+      if not _methods[method] then c.fd:close(); c.closed=true return
+      else c.req.method=method; c.req.path=path; c.state=head; c.req.head={} end
+    end
+
+    local function read(c)
+      local bytes, err = c.fd:read(8192)
+      if err then c.fd:closed(); c.closed=true return
+      elseif bytes==false then return
+      else return CRLF_lines(c, bytes) end
+    end
+
+    c.req = {}
+    c.res={head={},jar={}}
+    c.buffer={}
+    c.state = status
+    c.reply = reply
+    core.on_read(c, read)
   end)
 end
+ 
 
 --- Make an asynchronous HTTP request
 -- @param req
