@@ -4,7 +4,6 @@ local http=require'ox.http'
 --local site = http.host 'localhost'
 
 http.GET['^/$'] = function(c)
-  print 'handling'
   c:reply(200, "Hello World")
 end
 

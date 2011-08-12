@@ -87,7 +87,9 @@ end
 function finish(c, msg)
   local n=0
   on_write(c, function(c)
-    n=n+c.fd:send(msg, n)
+    local m = c.fd:send(msg, n)
+    if m==nil then c.fd:close() return 'close' end
+    n=n+m
     if n>=#msg then
       c.fd:close()
       return 'close'
@@ -102,8 +104,9 @@ function finish_source(c, head, source, foot)
   local n=0
   local msg=head or source()
   on_write(c, function(c)
-    print(msg)
-    n=n+c.fd:send(msg,n)
+    local m = c.fd:send(msg,n)
+    if m==nil then c.fd:close() return 'close' end
+    n=n+m
     if n==#msg then
       n=0
       msg=source()
