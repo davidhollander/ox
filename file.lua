@@ -88,15 +88,16 @@ end
 function folder_simple(dir)
   local dir=dir:match('^(.+)/?$')
   return function(c, path)
+    local rh=c.res.head
     f=not path:match('%.%.') and nixio.open(dir..'/'..path)
-    if not f then return http.reply(c, 404) end
+    if not f then return c:reply(404) end
     local ext=path:match('%.(%w+)$')
     local mime=mime_types[ext] or 'application/octet-stream'
-    http.header(c,'Content-Type', mime)
+    rh['Content-Type']=mime
     local stats=f:stat()
-    http.header(c, 'Last-Modified', http.datetime(stats.mtime))
-    http.header(c, 'Content-Length', stats.size)
-    http.reply(c, 200,source_file(f))
+    rh['Last-Modified']=http.datetime(stats.mtime)
+    rh['Content-Length']= stats.size
+    c:reply(200,source_file(f))
   end
 end
 
@@ -107,6 +108,7 @@ function folder(dir, config)
     local reqh=c.req.head
     local resh=c.res.head
     local f = not path:match('%.%.') and nixio.open(dir..'/'..path)
+    print('file.folder',f)
     if not f then return http.reply(c, 404) end
     local body
     local mime=mime_types[path:match('%.(%w+)$')] or 'application/octet-stream'

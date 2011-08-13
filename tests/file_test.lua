@@ -7,7 +7,7 @@ files={}
 files['script.js']="alert('Hello');"
 files['page.html']="<html><body>Hello</body></html>"
 local nfiles=0; for k,v in pairs(files) do nfiles=nfiles+1 end
-local port=8888
+local port=8889
 
 nixio.fs.mkdir('static')
 for k,v in pairs(files) do

@@ -53,6 +53,28 @@ function cache1(update, timeout)
   end
 end
 
+serialize=true
+local t_serialize = {
+  ['function'] = function(v) return string.dump(v) end,
+  table = function(v)
+    local t={}
+    for k, v in pairs(v) do
+      ti(t, tc {"[",serialize(k),"]=",serialize(v)})
+    end
+    return tc {'{',tc(t,','),'}'}
+  end,
+  string = function(v)
+    return string.format('%q',v)
+  end,
+  boolean = function(v)
+    return v and 'true' or 'false'
+  end
+}
+serialize = function(v)
+  local f = t_serialize[type(v)]
+  return f and f(v) or v
+end
+
 ---create a buffer for pushing unorded items into ordered lists
 --@ param sort   sorting function used by table.sort
 --@ param limit  number of items to return
