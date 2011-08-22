@@ -15,6 +15,8 @@ local on=true
 local timers={}
 local ti=table.insert
 local tc=table.concat
+--local qput, qpop = L.queue_put, L.queue_pop
+
 module(... or 'ox.core',package.seeall)
 
 time = os.time()
@@ -224,6 +226,52 @@ function call_fork(fn, cb)
   end
 end
 
+function stream(c, cb)
+  on_read(c, function(c)
+    local d, err = c.fd:read(8192)
+    if d==nil then c.fd:close(); c.closed=true
+    elseif d==false then return
+    else return cb(c, d) end
+  end)
+end
+
+function read(c, cb)
+  on_read(c, function(c)
+    local d, err = c.fd:read(8192)
+    if d==nil then c.fd:close(); c.closed=true
+    elseif d==false then return
+    else stop_read(c); return cb(c, d) end
+  end)
+end
+
+local function chunkln(c)
+	print 'chunkln'
+  local h,k = c.buffer:find('\r\n', c.init)
+  if h then 
+    local line = c.buffer:sub(1,h-1)
+    if k==#c.buffer then c.buffer=''
+    else c.buffer=c.buffer:sub(k+1) end
+		print('chunklnline',line)
+    return line
+  else c.init = #c.buffer-1 end
+end
+
+function readln(c, max, cb)
+	print 'readln'
+	if c.buffer then
+		local line = chunkln(c)
+		if line then return cb(c, #line<=max and line) end
+	else c.buffer = '' end
+
+  stream(c, function(c, bytes)
+		print(bytes)
+    c.buffer = c.buffer..bytes
+    local line = chunkln(c)
+    if line then stop_read(c); return cb(c, #line<=max and line)
+    elseif #c.buffer>max then stop_read(c); return cb(c) end
+  end)
+end
+
 -- asynchronous DNS lookup pooler and cache
 local host_cache = data.cache1(function(host, cb)
   call_fork(function()
@@ -258,6 +306,7 @@ end
 
 ---Run a tcp server on [port] that passes each accepted client to [cb]
 function serve(port, cb)
+	print 'serve'
   local sock, e, m = nixio.bind('*', port)
   if sock then
     sock:setblocking(false)
@@ -267,6 +316,7 @@ function serve(port, cb)
       events = EV_IN,
       revents = 0,
       read = function(server)
+				print 'accepting'
         while true do
           local sock = server.fd:accept()
           if sock then
@@ -308,6 +358,7 @@ function loop(timeout)
     local stat, code = nixio.poll(contexts, 500)
     time=os.time()
     if stat and stat>0 then
+			print(stat)
       local oldcontexts=contexts
       contexts={}
       for i=1,#oldcontexts do

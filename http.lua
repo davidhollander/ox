@@ -5,10 +5,7 @@
 -- an http server and utility functions
 
 local core=require 'ox.core'
-local lhp=require'http.parser'
-local json=require'json'
-local tc = table.concat
-local ti = table.insert
+local ti, tc = table.insert, table.concat
 module(... or 'ox.http',package.seeall)
 
 status_line={
@@ -52,8 +49,7 @@ status_line={
   [505]="HTTP/1.1 505 HTTP Version Not Supported\r\n",
 }
 
-GET,PUT,POST,DELETE={},{},{},{}
-local handlers={GET=GET,PUT=PUT,POST=POST,DELETE=DELETE}
+hosts = {}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
 --- Decode a url string
@@ -126,11 +122,17 @@ local function chunkwrap(source)
   end
 end
 
+function server_error(c, err)
+  core.log('500',err)
+  return core.finish(c, tc{status_line[500],'\r\n',err,'\r\n'})
+end
+
 ---Send an HTTP response and close connection when done.
 --@param c table. The connection this applies to.
 --@param status number. The HTTP status code.
 --@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
 function reply(c, status, body)
+	print('reply',status)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
 
@@ -154,115 +156,148 @@ function reply(c, status, body)
   else return core.finish(c, tc(t)) end
 end
 
-function server_error(c, err)
-  core.log('500',err)
-  return core.finish(c, tc{status_line[500],'\r\n',err,'\r\n'})
-end
-
--- reply_json(c, status, body)
--- shortcut for sending json
-function reply_json(c, status, body)
-  c.res.head['Content-Type']='application/json'
-  return reply(c, status, json.encode(body))
-end
-
 ---converts a date into a string appropriate for a HTTP header
 -- ex: Wed, 09 Jun 2021 10:18:14 GMT
 function datetime(utcseconds)
   return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
 end
-
-local web_methods={reply=reply}
-local web_mt={
-  __index=function(t,k) return web_methods[k] or rawget(t,k) end
-}
-
 local decoders={
   ['application/x-www-form-urlencoded']=qs_decode,
-  ['application/json']=json.decode,
+  --['application/json']=json.decode,
 }
-function CRLF_lines(c, bytes)
-  local init=1
-  if c.border then
-    if bytes:sub(1,1)=='\n' then
-      c:state(tc(c.buffer))
-      if c.closed then return end
-      c.buffer={}
-      init=2
-    else ti(c.buffer, '\n') end
-    c.border=nil
-  end
-  while true do
-    local h = bytes:find('\r', init)
-    if h then 
-      if h==#bytes then
-        c.border=true
-        ti(c.buffer, bytes:sub(init,-2))
-        break
-      elseif #c.buffer==0 then
-        c:state(bytes:sub(init, h-1))
-        if c.closed then return end
-      else
-        ti(c.buffer, bytes:sub(init, h-1))
-        c:state(tc(c.buffer))
-        if c.closed then return end
-        c.buffer={}
-      end
-      init=h+2
-    else ti(c.buffer, bytes:sub(init, #bytes)); break end
-  end
-end
-
 ---Add a server. Automatically routes accepted connections to handler functions placed in the
 -- http.GET, http.PUT, http.POST, and http.DELETE method tables using a lua pattern string for keys.
 -- @param port port number to listen on
 -- @param mware List of functions to pass the connection table through before calling a handler. Optional
 -- @return True or nil, Error Message.
 function serve(port, mware)
-  return core.serve(port, function(c)
+	local mware = mware or {}	
 
-    local function route(c)
-      local m = handlers[c.req.method]
-      if not m then return reply(c, 405) end
+  local function route(c)
+    --for i, v in ipairs(mware) do v(c) end
+		
+		local h
+		for k,v in pairs(hosts) do
+			if c.req.head.Host:match(k) then h=v; break end
+		end
+		if not h then return reply(c, 404) end
 
-      local p = c.req.path
-      for k,v in pairs(m) do
-        local capture = {p:match(k)}
-        if #capture>0 then return v(c, unpack(capture)) end
+    local m = h[c.req.method]
+    if not m then return reply(c, 405) end
+
+    local p = c.req.path
+    for k,v in pairs(m) do
+      local capture = {p:match(k)}
+      if #capture>0 then
+        local success, err = pcall(v, c, unpack(capture))
+        if not success then return server_error(c, err) end return
       end
-      return reply(c, 404)
     end
+    return reply(c, 404)
+  end
 
-    local function head(c, line)
-      if line=='' then return route(c) end
-      local key, value = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
-      if not key then return reply(c, 400) end
-      c.req.head[key]=value
-    end
-    
-    local _methods={GET=true, POST=true, DELETE=true, PUT=true}
-    local function status(c, line)
-      local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
-      if not _methods[method] then c.fd:close(); c.closed=true return
-      else c.req.method=method; c.req.path=path; c.state=head; c.req.head={} end
-    end
+  local function head(c, line)
+    if not line then return reply(c, 413)
+    elseif line=='' then return route(c) end
+    local key, val = line:match '^([^%s:]+)%s?:%s?(.+)'
+    if not key then return reply(c, 400)
+    elseif key=='Cookie' then
+      for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
+        c.req.jar[k]=v
+      end
+    else c.req.head[key]=val end
+    return core.readln(c, 2048, head)
+  end
+ 
+	local _methods = {GET=true,POST=true,PUT=true,DELETE=true}
+  local function status(c, line)
+    if not line then return reply(c, 414) end
+    local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
+    if not _methods[method] then c.fd:close(); c.closed=true return
+    else c.req.method=method; c.req.path=path; c.req.head={}; return core.readln(c, 2048, head) end
+  end
 
-    local function read(c)
-      local bytes, err = c.fd:read(8192)
-      if err then c.fd:closed(); c.closed=true return
-      elseif bytes==false then return
-      else return CRLF_lines(c, bytes) end
-    end
-
+  return core.serve(port, function(c)
     c.req = {}
     c.res={head={},jar={}}
-    c.buffer={}
-    c.state = status
     c.reply = reply
-    core.on_read(c, read)
+    core.readln(c, 2048, status)
   end)
 end
- 
+
+function bodyparser(maxfiles, maxsize, decoders)
+
+  local function chunkend(c)
+    c.data = tc(c.chunks)
+  end
+
+  local function chunk(c, data)
+    ti(c.chunks, data)
+    return core.read(c, 30, chunklen)
+  end
+
+  local function chunklen(c, line)
+    local len = tonumber(line, 16)
+    if len then return core.read(c, len, chunk) end
+  end
+
+  local function field(c, line)
+    local d = c.data[#c.data]
+
+    if line=='' then return core.read(c, len, file) end
+    local key, val = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
+    if key=='Content-Type' then d.ct=val
+    elseif key=='Content-Disposition' then d.cd=val end
+  end
+
+  local function boundary(c, line)
+    if line==c.bdr then
+      ti(c.data, {})
+      return core.readln(c, 2048, field)
+    end
+  end
+
+  return function(cb)
+    return function(c, ...)
+      c.data = {}
+      local ct = c.req.head['Content-Type']
+      local cl = c.req.head['Content-Length']
+      local te = c.req.head['Transfer-Encoding']
+      local bdr = ct and ct:match'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
+
+      if bdr then c.bdr=bdr; core.readln(c, 2048, boundary)
+      elseif te=='Chunked' then return core.readln(c, 32, chunklen) end
+      cb(c, ...)
+    end
+  end
+end
+function request(c)
+  local req = c.req
+  local t={req.method or 'GET',' ',req.path or '/'}
+  if req.qstr then ti(t,'?'); ti(t, qs_encode(req.qstr)) end
+  ti(t, " HTTP/1.1\r\n")
+  for k, v in pairs(req.head or {}) do
+    ti(t, k); ti(t, ': '); ti(t, v); ti(t,'\r\n')
+  end
+  if req.jar then 
+    local cookies={}
+    ti(t, 'Cookie: ')
+    for k, v in pairs(req.jar) do
+      ti(cookies, tc{k,'=',v})
+    end
+    ti(t, tc(cookies,';')); ti(t, '\r\n')
+  end
+  if type(req.body)=='function' then
+    if not req.head['Content-Length'] then
+      ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
+      body=chunkwrap(body)
+    end
+    core.send_source(c, tc(t), body, '\r\n')
+  elseif type(body)=='string' then
+    ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
+    core.send(c, tc(t))
+  else ti(t, '\r\n'); core.send(c, tc(t)) end
+end
 
 --- Make an asynchronous HTTP request
 -- @param req
@@ -278,65 +313,42 @@ end
 --  - redirect: function to handle all 30x responses. Optional.
 --  - error: function to handle all 40x and 50x responses. Optional.
 function fetch(req)
-  return core.connect(req.host, req.port or 80, function(c)
-    
-    req.head = req.head or {}
-    if not req.head.Host then req.head.Host=req.host end
-    local t={req.method or 'GET',' ',req.path or '/'}
-    if req.qstr then ti(t,'?'); ti(t, qs_encode(req.qstr)) end
-    ti(t, " HTTP/1.1\r\n")
-    for k, v in pairs(req.head or {}) do
-      ti(t, k); ti(t, ': '); ti(t, v); ti(t,'\r\n')
+  
+  local function route(c)
+    if req[res.status] then
+      return req[res.status](res)
+    elseif res.status>=200 and res.status<300 and req.success then
+      return req.success(res)
+    elseif res.status>=300 and res.status<400 and req.redirect then
+      req.redirect(res)
+    elseif res.status>=400 and req.error then
+      req.error(res)
     end
-    if req.jar then 
-      local cookies={}
-      ti(t, 'Cookie: ')
-      for k, v in pairs(req.jar) do
-        ti(cookies, tc{k,'=',v})
-      end
-      ti(t, tc(cookies,';')); ti(t, '\r\n')
-    end
-    if type(req.body)=='function' then
-      if not req.head['Content-Length'] then
-        ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
-        body=chunkwrap(body)
-      end
-      core.send_source(c, tc(t), body, '\r\n')
-    elseif type(body)=='string' then
-      ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
-      core.send(c, tc(t))
-    else ti(t, '\r\n'); core.send(c, tc(t)) end
-    -- response parser
-    local res={head={},body={},jar={}}
-    local done=false
-    local parser=lhp.response{
-      on_header=function(key,val)
-        if key=='Set-Cookie' then
-          local k,v = val:match('([^;=%s]+)=([^;=%s]+)')
-          if k and v then res.jar[k]=v end
-        else res.head[key]=val end
-      end,
-      on_body=function(chunk) table.insert(res.body,chunk) end,
-      on_message_complete=function() done=true end,
-      on_headers_complete=function() end,
-    }
-    core.on_read(c, function(c)
-      local data=c.fd:recv(8192)
-      if data==false then return 
-      elseif data==nil or data=='' or parser:execute(data)==0 or done then
-        res.status=parser:status_code();
-        res.body=table.concat(res.body)
-        c.fd:close()
-        if req[res.status] then req[res.status](res)
-        elseif res.status>=200 and res.status<300 and req.success then
-          req.success(res)
-        elseif res.status>=300 and res.status<400 and req.redirect then
-          req.redirect(res)
-        elseif res.status>=400 and req.error then
-          req.error(res)
-        end
-        return 'close'
-      end
-    end)
+  end
+
+  local function head(c, line)
+    if not line then return nil, 'Header byte limit exceeded'
+    elseif line=='' then return route(c) end
+    local key, value = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
+    if not key then return nil, 'Bad header'
+    elseif key=='Set-Cookie' then
+      local k,v = val:match('([^;=%s]+)=([^;=%s]+)')
+      if k and v then c.res.jar[k]=v end
+    else c.req.head[key]=val end
+    return core.readln(c, 2048, head)
+  end
+
+  local function status(c, line)
+    if not line then return nil, 'Status byte limit exceeded' end
+    local version, status = line:match('^HTTP/(1%.%d) (%d%d%d$)')
+    if not version then c.fd:close(); c.closed=true return
+    else c.res.version=version; c.res.status=path; c.res.head={}; return core.readln(c, 2048, head) end
+  end
+
+  return core.connect(host, port or 80, function(c)
+    core.readln(c, 2048, status)
+    c.req=req
+    c.res={head={}}
+    return request(c)
   end)
 end

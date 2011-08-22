@@ -54,6 +54,7 @@ addtest {
       if not n then 
         break
       end
+      print(n)
     end
     assert((os.time()-c)<timeout)
     return true
