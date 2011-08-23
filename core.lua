@@ -15,6 +15,8 @@ local on=true
 local timers={}
 local ti=table.insert
 local tc=table.concat
+--local qput, qpop = L.queue_put, L.queue_pop
+
 module(... or 'ox.core',package.seeall)
 
 time = os.time()
@@ -25,7 +27,7 @@ function log_file(file)
   f=io.open(file,'a+')
   if f then
     log = function(...)
-      f:write(table.concat{...})
+      f:write(tc{...})
       f:flush()
     end
   end
@@ -51,23 +53,23 @@ end
 
 ---Set the read callback for a connection table
 function on_read(c,cb)
-  c.events=bset(c.events,EV_IN)
-  c.read=cb
+  c.events = bset(c.events,EV_IN)
+  c.read = cb
 end
 ---Set the write callback for a connection table
 function on_write(c,cb)
-  c.events=bset(c.events,EV_OUT)
-  c.write=cb
+  c.events = bset(c.events,EV_OUT)
+  c.write = cb
 end
 ---Clear the read callback for a connection table
 function stop_read(c)
-  c.events=bunset(c.events,EV_IN)
-  c.read=nil
+  c.events = bunset(c.events,EV_IN)
+  c.read = nil
 end
 ---Clear the write callback for a connection table
 function stop_write(c)
-  c.events=bunset(c.events,EV_OUT)
-  c.write=nil
+  c.events = bunset(c.events,EV_OUT)
+  c.write = nil
 end
 
 local global_events={}
@@ -87,34 +89,32 @@ end
 function finish(c, msg)
   local n=0
   on_write(c, function(c)
+		print 'finish write CB'
     local m = c.fd:send(msg, n)
-    if m==nil then c.fd:close() return 'close' end
+    if m==nil then print'finish error'; c.closed=true; return c.fd:close() end
     n=n+m
-    if n>=#msg then
-      c.fd:close()
-      return 'close'
-    end
+    if n>=#msg then print 'finish success'; c.closed=true; return c.fd:close() end
   end)
 end
 
 ---Send a chunk on every cycle starting with [head]
 -- when [source] returns nil, send [foot] and close.
 function finish_source(c, head, source, foot)
-  print ' finish source '
+  --print ' finish source '
   local n=0
   local msg=head or source()
   on_write(c, function(c)
     local m = c.fd:send(msg,n)
-    if m==nil then c.fd:close() return 'close' end
+    if m==nil then c.closed=true; return c.fd:close() end
     n=n+m
     if n==#msg then
       n=0
       msg=source()
       if not msg then
-        print(foot)
+        --print(foot)
         c.fd:send(foot or '')
-        c.fd:close()
-        return 'close'
+				c.closed=true
+        return c.fd:close()
       end
     end
   end)
@@ -171,11 +171,11 @@ function buffer_pipe(cb)
   return function (c)
     while true do
       local data = c.fd:read(8192)
-      if data then table.insert(out,data)
+      if data then ti(out, data)
       else
+				c.closed=true
         c.fd:close()
-        cb(table.concat(out))
-        return 'close'
+        return cb(tc(out))
       end
     end
   end
@@ -186,7 +186,7 @@ end
 function push_send(c, chunk)
   if bcheck(c.events, EV_OUT) then
     if not c.outbox then c.outbox={chunk}
-    else table.insert(c.outbox, chunk) end
+    else ti(c.outbox, chunk) end
   else
     local n=0
     local msg=chunk
@@ -194,7 +194,7 @@ function push_send(c, chunk)
       n=c.fd:send(msg,n)
       if n==#msg then
         if c.outbox then
-          msg=table.concat(c.outbox)
+          msg=tc(c.outbox)
           c.outbox=nil
           n=0
         else stop_write(c) end
@@ -214,7 +214,7 @@ function call_fork(fn, cb)
     pipein:close()
     os.exit()
   else
-    table.insert(contexts,{
+    ti(contexts, {
       fd=pipeout,
       events=EV_IN,
       revents=0,
@@ -222,6 +222,52 @@ function call_fork(fn, cb)
       read=buffer_pipe(cb)
     })
   end
+end
+
+function stream(c, cb)
+  on_read(c, function(c)
+    local d, err = c.fd:read(8192)
+    if d==nil then c.closed=true; return c.fd:close()
+    elseif d==false then return
+    else return cb(c, d) end
+  end)
+end
+
+function read(c, cb)
+  on_read(c, function(c)
+    local d, err = c.fd:read(8192)
+    if d==nil then c.closed=true; return c.fd:close()
+    elseif d==false then return
+    else stop_read(c); return cb(c, d) end
+  end)
+end
+
+local function chunkln(c)
+	--print 'chunkln'
+  local h,k = c.buffer:find('\r\n', c.init)
+  if h then 
+    local line = c.buffer:sub(1,h-1)
+    if k==#c.buffer then c.buffer=''
+    else c.buffer=c.buffer:sub(k+1) end
+		--print('chunklnline',line)
+    return line
+  else c.init = #c.buffer-1 end
+end
+
+function readln(c, max, cb)
+	--print 'readln'
+	if c.buffer then
+		local line = chunkln(c)
+		if line then return cb(c, #line<=max and line) end
+	else c.buffer = '' end
+
+  stream(c, function(c, bytes)
+		--print(bytes)
+    c.buffer = c.buffer..bytes
+    local line = chunkln(c)
+    if line then stop_read(c); return cb(c, #line<=max and line)
+    elseif #c.buffer>max then stop_read(c); return cb(c) end
+  end)
 end
 
 -- asynchronous DNS lookup pooler and cache
@@ -238,12 +284,12 @@ function connect(host, port, cb)
 
   local function _connect(ip, port, cb)
     local sock, e, m = nixio.socket('inet','stream')
-    print('connect', sock, e, m)
+    --print('connect', sock, e, m)
     if sock then
       sock:setblocking(false)
       sock:connect(ip, port)
       local c={fd=sock,events=0,revents=0}
-      table.insert(contexts, c)
+      ti(contexts, c)
       cb(c)
       return true
     else return nil, e, m end
@@ -258,21 +304,23 @@ end
 
 ---Run a tcp server on [port] that passes each accepted client to [cb]
 function serve(port, cb)
+	--print 'serve'
   local sock, e, m = nixio.bind('*', port)
   if sock then
     sock:setblocking(false)
     sock:listen(1024)
-    table.insert(contexts, {
+    ti(contexts, {
       fd = sock,
       events = EV_IN,
       revents = 0,
       read = function(server)
+				--print 'accepting'
         while true do
           local sock = server.fd:accept()
           if sock then
             local c={fd=sock,events=0,revents=0,accept_time=time}
             cb(c)
-            table.insert(contexts,c)
+            ti(contexts,c)
           else break end
         end
       end
@@ -285,16 +333,16 @@ end
 -- Close accepted connections older than [timeout]
 function expire(timeout)
   local old = time - timeout
-  local oldcontexts=contexts
+  local oldcontexts = contexts
   contexts={}
   local brk=false
   for i=1,#oldcontexts do
     if brk then contexts[i]=oldcontexts[i]
     else
       local c=oldcontexts[i]
-      if not c.accept_time then table.insert(contexts,c)
-      elseif c.accept_time<old then c.fd:close(); log('expired')
-      else brk=true; table.insert(contexts,c) end
+      if not c.accept_time then ti(contexts, c)
+      elseif c.accept_time<old then c.closed=true; print 'expired'; return c.fd:close()
+      else brk=true; ti(contexts, c) end
     end
   end
 end
@@ -308,16 +356,17 @@ function loop(timeout)
     local stat, code = nixio.poll(contexts, 500)
     time=os.time()
     if stat and stat>0 then
+			--print('LOOP', stat)
       local oldcontexts=contexts
       contexts={}
       for i=1,#oldcontexts do
         local c=oldcontexts[i]
-        if bcheck(c.revents,EV_OUT) and c:write()=='close'
-          or bcheck(c.revents,EV_IN) and c:read()=='close' then
-            --c.fd:close()
-        else
+        if bcheck(c.revents,EV_OUT) then c:write() end
+				if not c.closed and bcheck(c.revents,EV_IN) then c:read() end
+				if not c.closed then
+					--print('LOOP KEEP', c, c.fd, c.closed)
           c.revents=0 
-          table.insert(contexts,c)
+          ti(contexts, c)
         end
       end
     end

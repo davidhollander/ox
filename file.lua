@@ -8,7 +8,7 @@ local data=require'ox.data'
 local core=require'ox.core'
 local http=require'ox.http'
 local nixio=require'nixio',require'nixio.util'
-local zlib=require'zlib'
+--local zlib=require'zlib'
 local ti, tc =table.insert, table.concat
 module(... or 'ox.file',package.seeall)
 
@@ -38,7 +38,7 @@ local function source_partial(file,n)
   end
 end
 
--- wrap source with streaming GZIP compressor
+--[[ wrap source with streaming GZIP compressor
 local function compress(source)
   local filter=zlib.deflate()
   return function()
@@ -47,7 +47,7 @@ local function compress(source)
     if not chunk then source=nil; return filter()
     else return filter(chunk) end
   end
-end
+end]]
 
 -- cache a static response into memory using a file
 function preload(path)
@@ -136,7 +136,8 @@ function folder(dir, config)
     end
     
     -- streaming compression
-    if string.match(reqh['Accept-Encoding'] or '', 'deflate') then
+		if false then
+    --if string.match(reqh['Accept-Encoding'] or '', 'deflate') then
       resh['Content-Encoding']='deflate'
       return http.reply(c, 200, compress(source_file(f)))
     else

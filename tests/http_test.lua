@@ -19,7 +19,6 @@ addtest {
   test = function()
     local sock,err,m = nixio.connect(host, port)
     sock:write(req_root)
-    sock:read(1024)
     sock:close()
     return true
   end
@@ -54,6 +53,7 @@ addtest {
       if not n then 
         break
       end
+      print(n)
     end
     assert((os.time()-c)<timeout)
     return true
@@ -115,8 +115,10 @@ addtest {
   end
 }
 
-http.GET['^/$'] = function(c)
-  http.reply(c, 200, "Hello")
+http.hosts.localhost={GET={}}
+local site = http.hosts.localhost
+site.GET['^/$'] = function(c)
+  c:reply(200, "Hello")
 end
 
 local n=0

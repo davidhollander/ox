@@ -1,27 +1,16 @@
-Ox is the lightweight, asynchronous, callback-based server library for developing fast servers, web applications, or data services.
+Ox is a lightweight, asynchronous, callback-based server library for developing fast servers, web applications, or data services using LuaJIT.
 
 ## Status
-Currently serves single host http web applications at speeds equivalent to nginx static files in naive benchmarks.
+The ox2 branch has now been merged into master, where development will continue.
+The current development goal is to eliminate all C dependencies. The C lua-http-parser dependency has been removed, and a pure Lua http parser has been added. It improves upon prior Lua http parser implementations, such as the one present in Xavante, by performing bounded reads. 
 
-A blogging example application using tokyocabinet is in development to feature many common use cases.
+The next step will be removing the nixio dependency and moving to the LuaJIT ffi. The ffi strategy for core will be to use the ffi directly without intermediaries to perform all low-level polling and socket manipulation, and provide Lua functions for the higher level asynchronous operations.
 
-Upon completion of oxblog, the spec for the first version will solidify, with html documentation and a .rock file being added.
-
-Later, experimental branches including virtual hosts, RPC, and a rewrite for the LuaJIT FFI can be merged in, depending on feature priority and demand.
+The previous master branch supporting PUC-Rio Lua has been moved from 'master' to 'ox1', whereas the master branch will strictly require LuaJIT in the future.
 
 ## Install
-### Debian\Ubuntu
-    make apt
-    make install
-
-### Other
-Install the dependencies with rock files:
-
 * luarocks install nixio
-* luarocks install json4lua 
-* luarocks install lua-http-parser
-
-Install lua-zlib: https://github.com/brimworks/lua-zlib
+* make install
 
 ## Getting started
     luajit examples/helloworld.lua
