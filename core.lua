@@ -27,28 +27,45 @@ function log_file(file)
   f=io.open(file,'a+')
   if f then
     log = function(...)
-      f:write(tc{...})
+      f:write(...)
       f:flush()
     end
   end
 end
 
+-- callback to be run when current time is utcseconds [time]
+function at(utctime, cb)
+	if utctime<time then return nil, 'Must be in future'
+	elseif timers[utctime] then ti(timers[utctime], cb)
+	else timers[utctime]={cb} end
+	return true
+end
+function timeout(sec, cb) return at(time+sec, cb) end
 
--- call [fn] in [sec] seconds.
--- Low accuracy. Might add something using nixio.ctime in future if needed.
-function timer(fn, sec)
-  ti(timers, {time=os.time()+sec,fn=fn})
-  table.sort(timers, function(a,b) return a.time<b.time end)
+function cron(t, fn)
+	local t2 = os.date('*t')
+	if not t.year then
+		if not t.month then
+			if not t.day then
+				if not t.hour then
+					if not t.min then
+						if not t.sec then return nil, 'Table must specify sec, min, hour, day, month, or year'
+						elseif t.sec<t2.sec then t2.min=t2.min+1 end
+					elseif t.min<t2.min then t2.hour=t2.hour+1 end
+				elseif t.hour<t2.hour then t2.day=t2.day+1 end
+			elseif t.day<t2.day then t2.month=t2.month+1 end
+		elseif t.month<t2.month then t2.year=t2.year+1 end
+	end
+	for k,v in pairs(t) do t2[k]=v end
+  return at(os.time(t2), fn)
 end
 
 -- tick
--- Fire timers if needed
 local function tick()
-  for i=#timers,1,-1 do
-    local t=timers[i]
-    if t.time>os.time() then break
-    else t.fn(); timers[i]=nil end
-  end
+	if timers[time] then
+		for i,v in ipairs(timers[time]) do v() end
+		timers[time]=nil
+	end
 end
 
 ---Set the read callback for a connection table
@@ -72,16 +89,13 @@ function stop_write(c)
   c.write = nil
 end
 
-local global_events={}
+local signals={}
 function bind(name, fn)
-  if global_events[name] then
-    ti(global_events[name], fn)
-  else global_events[name]={fn} end
+  if signals[name] then ti(signals[name], fn)
+  else signals[name]={fn} end
 end
 function trigger(name)
-  for i,fn in ipairs(global_events) do
-    fn()
-  end
+  for i,fn in ipairs(global_events) do fn() end
 end
 
 
@@ -223,6 +237,7 @@ function call_fork(fn, cb)
     })
   end
 end
+
 
 function stream(c, cb)
   on_read(c, function(c)
