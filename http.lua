@@ -132,7 +132,7 @@ end
 --@param status number. The HTTP status code.
 --@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
 function reply(c, status, body)
-	print('reply',status)
+  print('reply',status)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
 
@@ -171,19 +171,19 @@ local decoders={
 -- @param mware List of functions to pass the connection table through before calling a handler. Optional
 -- @return True or nil, Error Message.
 function serve(port, mware)
-	local mware = mware or {}	
+  local mware = mware or {} 
 
   local function route(c)
-		print 'route'
+    print 'route'
     --for i, v in ipairs(mware) do v(c) end
-		local h
-		local rh = c.req.head.Host
-		if rh then
-			for k,v in pairs(hosts) do
-				if c.req.head.Host:match(k) then h=v; break end
-			end
-		end
-		if not h then return reply(c, 404) end
+    local h
+    local rh = c.req.head.Host
+    if rh then
+      for k,v in pairs(hosts) do
+        if c.req.head.Host:match(k) then h=v; break end
+      end
+    end
+    if not h then return reply(c, 404) end
 
     local m = h[c.req.method]
     if not m then return reply(c, 405) end
@@ -202,7 +202,7 @@ function serve(port, mware)
   local function head(c, line)
     if not line then return reply(c, 413)
     elseif line=='' then return route(c) end
-		print('PARSE header',line)
+    print('PARSE header',line)
     local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
     if not key then return reply(c, 400)
     elseif key=='Cookie' then
@@ -213,7 +213,7 @@ function serve(port, mware)
     return core.readln(c, 2048, head)
   end
  
-	local _methods = {GET=true,POST=true,PUT=true,DELETE=true}
+  local _methods = {GET=true,POST=true,PUT=true,DELETE=true}
   local function status(c, line)
     if not line then return reply(c, 414) end
     local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
@@ -318,17 +318,17 @@ end
 --  - error: function to handle all 40x and 50x responses. Optional.
 function fetch(req, cb)
 
-	local function head_done(c)
-		c.fd:close()
-		c.closed=true
-		return cb(c.res)
-	end
+  local function head_done(c)
+    c.fd:close()
+    c.closed=true
+    return cb(c.res)
+  end
   
   local function head(c, line)
-		print 'FETCH head'
+    print 'FETCH head'
     if not line then return cb(nil, 'Header byte limit exceeded')
     elseif line=='' then return head_done(c) end
-		print('FETCH head',line)
+    print('FETCH head',line)
     local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
     if not key then c.closed=true; c.fd:close() return cb(nil, 'Bad header')
     elseif key=='Set-Cookie' then
@@ -339,19 +339,19 @@ function fetch(req, cb)
   end
 
   local function status(c, line)
-		print 'FETCH status'
+    print 'FETCH status'
     if not line then return cb(nil, 'Status byte limit exceeded') end
     local version, status = line:match('^HTTP/(1%.%d) (%d%d%d)')
     if not version then c.closed=true c.fd:close() return cb(nil,'Bad status') end
     c.res.version=version
-		c.res.status=tonumber(status)
-		return core.readln(c, 2048, head)
+    c.res.status=tonumber(status)
+    return core.readln(c, 2048, head)
   end
 
   return core.connect(req.host, req.port or 80, function(c)
     core.readln(c, 2048, status)
     c.req=req
-		if not c.req.head.Host then c.req.head.Host=req.host end
+    if not c.req.head.Host then c.req.head.Host=req.host end
     c.res={head={},jar={}}
     return request(c)
   end)

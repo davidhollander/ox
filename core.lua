@@ -35,37 +35,37 @@ end
 
 -- callback to be run when current time is utcseconds [time]
 function at(utctime, cb)
-	if utctime<time then return nil, 'Must be in future'
-	elseif timers[utctime] then ti(timers[utctime], cb)
-	else timers[utctime]={cb} end
-	return true
+  if utctime<time then return nil, 'Must be in future'
+  elseif timers[utctime] then ti(timers[utctime], cb)
+  else timers[utctime]={cb} end
+  return true
 end
 function timeout(sec, cb) return at(time+sec, cb) end
 
 function cron(t, fn)
-	local t2 = os.date('*t')
-	if not t.year then
-		if not t.month then
-			if not t.day then
-				if not t.hour then
-					if not t.min then
-						if not t.sec then return nil, 'Table must specify sec, min, hour, day, month, or year'
-						elseif t.sec<t2.sec then t2.min=t2.min+1 end
-					elseif t.min<t2.min then t2.hour=t2.hour+1 end
-				elseif t.hour<t2.hour then t2.day=t2.day+1 end
-			elseif t.day<t2.day then t2.month=t2.month+1 end
-		elseif t.month<t2.month then t2.year=t2.year+1 end
-	end
-	for k,v in pairs(t) do t2[k]=v end
+  local t2 = os.date('*t')
+  if not t.year then
+    if not t.month then
+      if not t.day then
+        if not t.hour then
+          if not t.min then
+            if not t.sec then return nil, 'Table must specify sec, min, hour, day, month, or year'
+            elseif t.sec<t2.sec then t2.min=t2.min+1 end
+          elseif t.min<t2.min then t2.hour=t2.hour+1 end
+        elseif t.hour<t2.hour then t2.day=t2.day+1 end
+      elseif t.day<t2.day then t2.month=t2.month+1 end
+    elseif t.month<t2.month then t2.year=t2.year+1 end
+  end
+  for k,v in pairs(t) do t2[k]=v end
   return at(os.time(t2), fn)
 end
 
 -- tick
 local function tick()
-	if timers[time] then
-		for i,v in ipairs(timers[time]) do v() end
-		timers[time]=nil
-	end
+  if timers[time] then
+    for i,v in ipairs(timers[time]) do v() end
+    timers[time]=nil
+  end
 end
 
 ---Set the read callback for a connection table
@@ -95,7 +95,7 @@ function bind(name, fn)
   else signals[name]={fn} end
 end
 function trigger(name)
-  for i,fn in ipairs(global_events) do fn() end
+  for i,fn in ipairs(signals) do fn() end
 end
 
 
@@ -103,7 +103,7 @@ end
 function finish(c, msg)
   local n=0
   on_write(c, function(c)
-		print 'finish write CB'
+    print 'finish write CB'
     local m = c.fd:send(msg, n)
     if m==nil then print'finish error'; c.closed=true; return c.fd:close() end
     n=n+m
@@ -127,7 +127,7 @@ function finish_source(c, head, source, foot)
       if not msg then
         --print(foot)
         c.fd:send(foot or '')
-				c.closed=true
+        c.closed=true
         return c.fd:close()
       end
     end
@@ -187,7 +187,7 @@ function buffer_pipe(cb)
       local data = c.fd:read(8192)
       if data then ti(out, data)
       else
-				c.closed=true
+        c.closed=true
         c.fd:close()
         return cb(tc(out))
       end
@@ -258,26 +258,26 @@ function read(c, cb)
 end
 
 local function chunkln(c)
-	--print 'chunkln'
+  --print 'chunkln'
   local h,k = c.buffer:find('\r\n', c.init)
   if h then 
     local line = c.buffer:sub(1,h-1)
     if k==#c.buffer then c.buffer=''
     else c.buffer=c.buffer:sub(k+1) end
-		--print('chunklnline',line)
+    --print('chunklnline',line)
     return line
   else c.init = #c.buffer-1 end
 end
 
 function readln(c, max, cb)
-	--print 'readln'
-	if c.buffer then
-		local line = chunkln(c)
-		if line then return cb(c, #line<=max and line) end
-	else c.buffer = '' end
+  --print 'readln'
+  if c.buffer then
+    local line = chunkln(c)
+    if line then return cb(c, #line<=max and line) end
+  else c.buffer = '' end
 
   stream(c, function(c, bytes)
-		--print(bytes)
+    --print(bytes)
     c.buffer = c.buffer..bytes
     local line = chunkln(c)
     if line then stop_read(c); return cb(c, #line<=max and line)
@@ -319,7 +319,7 @@ end
 
 ---Run a tcp server on [port] that passes each accepted client to [cb]
 function serve(port, cb)
-	--print 'serve'
+  --print 'serve'
   local sock, e, m = nixio.bind('*', port)
   if sock then
     sock:setblocking(false)
@@ -329,7 +329,7 @@ function serve(port, cb)
       events = EV_IN,
       revents = 0,
       read = function(server)
-				--print 'accepting'
+        --print 'accepting'
         while true do
           local sock = server.fd:accept()
           if sock then
@@ -371,15 +371,15 @@ function loop(timeout)
     local stat, code = nixio.poll(contexts, 500)
     time=os.time()
     if stat and stat>0 then
-			--print('LOOP', stat)
+      --print('LOOP', stat)
       local oldcontexts=contexts
       contexts={}
       for i=1,#oldcontexts do
         local c=oldcontexts[i]
         if bcheck(c.revents,EV_OUT) then c:write() end
-				if not c.closed and bcheck(c.revents,EV_IN) then c:read() end
-				if not c.closed then
-					--print('LOOP KEEP', c, c.fd, c.closed)
+        if not c.closed and bcheck(c.revents,EV_IN) then c:read() end
+        if not c.closed then
+          --print('LOOP KEEP', c, c.fd, c.closed)
           c.revents=0 
           ti(contexts, c)
         end

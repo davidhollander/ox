@@ -19,37 +19,37 @@ local _parents = {
 }
 ---Nonstrict html parser. Always sticks elements in the DOM without raising errors. Inspired by Roberto's strict XML parser from LuaUsers wiki.
 function H.decode(html)
-	local i=1
-	local dom = {}
-	local node = dom
+  local i=1
+  local dom = {}
+  local node = dom
   while true do
     local h, k, close, e, attr, empty = html:find("<(/?)([%w:]+)(.-)(/?)>", i)
     if not h then break end
     local text = html:sub(i, h-1)
     if not text:match '^%s*$' then ti(node, text) end
-		--insert
+    --insert
     if empty=='/' or _empty[e] then ti(node, {e=e, up=node, a=_dec_attr(attr)})
-		--(ascend?), insert, descend
+    --(ascend?), insert, descend
     elseif close=='' then
-			if node.up and _parents[e] and _parents[e]~=node.e then
-				repeat node=node.up until _parents[e]==node.e or not node.up
-			end
+      if node.up and _parents[e] and _parents[e]~=node.e then
+        repeat node=node.up until _parents[e]==node.e or not node.up
+      end
       local x = {e=e, up=node, a=_dec_attr(attr)}
-			ti(node, x)
-			node = x
-		--[[ascend, insert, descend
-		elseif _parents[e] and _parents[e]~=node.e then
-			while node.up do
-				node=node.up
-				if node.e==parents[e] then break end
-			end
-			ti(node, {e=e, up=node, a=_dec_attr(attr)})]]
-		--ascend
+      ti(node, x)
+      node = x
+    --[[ascend, insert, descend
+    elseif _parents[e] and _parents[e]~=node.e then
+      while node.up do
+        node=node.up
+        if node.e==parents[e] then break end
+      end
+      ti(node, {e=e, up=node, a=_dec_attr(attr)})]]
+    --ascend
     elseif close=='/' then
-			while node.up do
-				if node.e==e then node=node.up; break
-				else node=node.up end
-			end
+      while node.up do
+        if node.e==e then node=node.up; break
+        else node=node.up end
+      end
     end
     i=k+1
   end
@@ -93,47 +93,47 @@ end
 
 ---Get all nodes where element == e
 function H.gete(dom, e)
-	local function _(O, x)
-		for i, node in ipairs(x) do
-			if type(node)=='table' then
-				if node.e==e then ti(O, node) print('gete',H.encode(node))
-				else _(O, node) end
-			end
-		end
-	end
-	local out = {}
-	_(out, dom)
-	return out
+  local function _(O, x)
+    for i, node in ipairs(x) do
+      if type(node)=='table' then
+        if node.e==e then ti(O, node) print('gete',H.encode(node))
+        else _(O, node) end
+      end
+    end
+  end
+  local out = {}
+  _(out, dom)
+  return out
 end
 
 ---Get all nodes where attribute k == v
 function H.geta(dom, k, v)
-	local function _(O, x)
-		for i, node in ipairs(x) do
-			if type(node)=='table' then
-				if node.a and node.a[k]==v then ti(O, node) print('geta',H.encode(node))
-				else _(O, node) end
-			end
-		end
-	end
-	local out = {}
-	_(out, dom)
-	return out
+  local function _(O, x)
+    for i, node in ipairs(x) do
+      if type(node)=='table' then
+        if node.a and node.a[k]==v then ti(O, node) print('geta',H.encode(node))
+        else _(O, node) end
+      end
+    end
+  end
+  local out = {}
+  _(out, dom)
+  return out
 end
 
 ---Get all nodes where attribute k:match(v)
 function H.matcha(dom, k, v)
-	local function _(O, x)
-		for i, node in ipairs(x) do
-			if type(node)=='table' then
-				if node.a and node.a[k] and node.a[k]:match(v) then ti(O, node)
-				else _(O, node) end
-			end
-		end
-	end
-	local out = {}
-	_(out, dom)
-	return out
+  local function _(O, x)
+    for i, node in ipairs(x) do
+      if type(node)=='table' then
+        if node.a and node.a[k] and node.a[k]:match(v) then ti(O, node)
+        else _(O, node) end
+      end
+    end
+  end
+  local out = {}
+  _(out, dom)
+  return out
 end
 
 ---Similar to os.time(t), but utc timezone correct if type(t)=='table'.

@@ -65,7 +65,7 @@ function preload(path)
   f:close()
   body=nil f=nil stats=nil
   return function(c) core.finish(c, res) end
-end	
+end 
 -- cache a static response into memory for [timeout] duration
 function cache(path, timeout)
   local mime = mime_types[path:match('%.(%w+)$')] or 'text/plain'
@@ -136,7 +136,7 @@ function folder(dir, config)
     end
     
     -- streaming compression
-		if false then
+    if false then
     --if string.match(reqh['Accept-Encoding'] or '', 'deflate') then
       resh['Content-Encoding']='deflate'
       return http.reply(c, 200, compress(source_file(f)))
