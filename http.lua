@@ -132,7 +132,7 @@ end
 --@param status number. The HTTP status code.
 --@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
 function reply(c, status, body)
-  print('reply',status)
+  --print('reply',status)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
 
@@ -202,7 +202,7 @@ function serve(port, mware)
   local function head(c, line)
     if not line then return reply(c, 413)
     elseif line=='' then return route(c) end
-    print('PARSE header',line)
+    --print('PARSE header',line)
     local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
     if not key then return reply(c, 400)
     elseif key=='Cookie' then
@@ -229,7 +229,7 @@ function serve(port, mware)
   end)
 end
 
-function bodyparser(maxfiles, maxsize, decoders)
+function readbody(maxfiles, maxsize, decoders, cb)
 
   local function chunkend(c)
     c.data = tc(c.chunks)
@@ -310,25 +310,27 @@ end
 --  - method: string. Default: GET
 --  - path: string. Default: /
 --  - qstr: table of query string variables. Optional
---  - head: table of http request headers. Optional. Host header included automatically.
+--  - head: table of http request headers. Optional. Host header added automatically.
 --  - jar: table of cookies. Optional.
---  - [number]: function to handle a specific HTTP response status code. Optional.
---  - success: function to handle all 20x responses. Optional.
---  - redirect: function to handle all 30x responses. Optional.
---  - error: function to handle all 40x and 50x responses. Optional.
+-- @param cb function that will be called with (nil, error) or (response) table.
 function fetch(req, cb)
 
   local function head_done(c)
+    --[[if c.maxlength then
+      local te = c.res.head['Transfer-Encoding']
+      local ct = c.res.head['Content-Type']
+      local cl = c.res.head['Content-Length']
+    end]]
     c.fd:close()
     c.closed=true
     return cb(c.res)
   end
   
   local function head(c, line)
-    print 'FETCH head'
+    --print 'FETCH head'
     if not line then return cb(nil, 'Header byte limit exceeded')
     elseif line=='' then return head_done(c) end
-    print('FETCH head',line)
+    --print('FETCH head',line)
     local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
     if not key then c.closed=true; c.fd:close() return cb(nil, 'Bad header')
     elseif key=='Set-Cookie' then
@@ -339,7 +341,7 @@ function fetch(req, cb)
   end
 
   local function status(c, line)
-    print 'FETCH status'
+    --print 'FETCH status'
     if not line then return cb(nil, 'Status byte limit exceeded') end
     local version, status = line:match('^HTTP/(1%.%d) (%d%d%d)')
     if not version then c.closed=true c.fd:close() return cb(nil,'Bad status') end
