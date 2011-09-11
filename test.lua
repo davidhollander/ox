@@ -1,12 +1,6 @@
-local fs = require 'nixio.fs'
-local i=1
-for name in fs.glob 'tests/*.lua' do
-  local f = assert(io.open(name))
-  local test = loadfile(name)
-  print''
-  print(i, name)
-  print''
-  test()
-  i=i+1
+local fs = require 'ox.fs'
+
+for fname in fs.gdir 'test/?.lua' do
+  print(fname)
+  loadfile(fname)()
 end
-print 'pass.'

@@ -4,11 +4,10 @@
 
 -- an http server and utility functions
 
-local core=require 'ox.core'
 local ti, tc = table.insert, table.concat
-module(... or 'ox.http',package.seeall)
+local H = {}
 
-status_line={
+local status_line = {
   [100]="HTTP/1.1 100 Continue\r\n",
   [101]="HTTP/1.1 101 Switching Protocols\r\n",
   [200]="HTTP/1.1 200 OK\r\n",
@@ -53,7 +52,7 @@ hosts = {}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
 --- Decode a url string
-function url_decode(str)
+function H.url_decode(str)
   if not str then return nil end
   str = string.gsub (str, "+", " ")
   str = string.gsub (str, "%%(%x%x)", function(h) return string.char(tonumber(h,16)) end)
@@ -63,7 +62,7 @@ end
 
 --make sure to leave '.','-','~','_' as is
 --- Encode a url string
-function url_encode(str)
+function H.url_encode(str)
   if not str then return nil end
   str = string.gsub (str, "\n", "\r\n")
   str = string.gsub (str, "([^%w%.%-~_ ])",
@@ -75,7 +74,7 @@ end
 --- Parse query string or form body
 -- @param qstr string
 -- @return table
-function qs_decode(qstr)
+function H.qs_decode(qstr)
   local t={}
   for k,v in string.gmatch(qstr, "([^&=]+)=([^&=]*)&?") do
     if #v>0 then t[url_decode(k)] = url_decode(v)
@@ -87,7 +86,7 @@ end
 --- Encode query string or form body
 -- @param table
 -- @return string
-function qs_encode(t)
+function H.qs_encode(t)
   local out={}
   for k,v in pairs(t) do
     if v~=true then
@@ -100,7 +99,7 @@ end
 
 url = url_encode
 --- Escape html characters
-function html(text)
+function H.eschtml(text)
   return string.gsub(text or '',"[&<>'\"]",{
     ['&']="&amp;",
     ['<']="&lt;",
@@ -122,7 +121,7 @@ local function chunkwrap(source)
   end
 end
 
-function server_error(c, err)
+local function server_error(c, err)
   core.log('500',err)
   return core.finish(c, tc{status_line[500],'\r\n',err,'\r\n'})
 end
@@ -131,7 +130,7 @@ end
 --@param c table. The connection this applies to.
 --@param status number. The HTTP status code.
 --@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
-function reply(c, status, body)
+function H.reply(c, status, body)
   --print('reply',status)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
@@ -158,7 +157,7 @@ end
 
 ---converts a date into a string appropriate for a HTTP header
 -- ex: Wed, 09 Jun 2021 10:18:14 GMT
-function datetime(utcseconds)
+function H.datetime(utcseconds)
   return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
 end
 local decoders={
@@ -170,7 +169,7 @@ local decoders={
 -- @param port port number to listen on
 -- @param mware List of functions to pass the connection table through before calling a handler. Optional
 -- @return True or nil, Error Message.
-function serve(port, mware)
+function H.serve(port, mware)
   local mware = mware or {} 
 
   local function route(c)
@@ -229,7 +228,7 @@ function serve(port, mware)
   end)
 end
 
-function readbody(maxfiles, maxsize, decoders, cb)
+function H.readbody(maxfiles, maxsize, decoders, cb)
 
   local function chunkend(c)
     c.data = tc(c.chunks)
@@ -275,7 +274,8 @@ function readbody(maxfiles, maxsize, decoders, cb)
     end
   end
 end
-function request(c)
+
+local function request(c)
   local req = c.req
   local t={req.method or 'GET',' ',req.path or '/'}
   if req.qstr then ti(t,'?'); ti(t, qs_encode(req.qstr)) end
@@ -313,7 +313,7 @@ end
 --  - head: table of http request headers. Optional. Host header added automatically.
 --  - jar: table of cookies. Optional.
 -- @param cb function that will be called with (nil, error) or (response) table.
-function fetch(req, cb)
+function H.fetch(req, cb)
 
   local function head_done(c)
     --[[if c.maxlength then
