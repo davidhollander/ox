@@ -48,7 +48,7 @@ local status_line = {
   [505]="HTTP/1.1 505 HTTP Version Not Supported\r\n",
 }
 
-hosts = {}
+H.host = {}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
 --- Decode a url string
@@ -162,14 +162,17 @@ function H.datetime(utcseconds)
 end
 local decoders={
   ['application/x-www-form-urlencoded']=qs_decode,
-  --['application/json']=json.decode,
 }
----Add a server. Automatically routes accepted connections to handler functions placed in the
--- http.GET, http.PUT, http.POST, and http.DELETE method tables using a lua pattern string for keys.
--- @param port port number to listen on
--- @param mware List of functions to pass the connection table through before calling a handler. Optional
--- @return True or nil, Error Message.
-function H.serve(port, mware)
+
+
+local function req_route(c)
+
+
+end
+
+
+
+function H.accept(c)
   local mware = mware or {} 
 
   local function route(c)

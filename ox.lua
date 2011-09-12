@@ -110,7 +110,7 @@ local function _readln_border(c)
     c.h=c.len>1 and 1 or nil
     local k=c.k
     c.k=nil
-    return c.lncb(ffi.string(c.buff2, k))
+    return c.lncb(c, ffi.string(c.buff2, k))
   else
     c.buff2[c.k]=13
     c.k=c.k+1
@@ -134,7 +134,7 @@ local function _readlnB(c)
     for i=0, m+1 do
       if a[i]==13 and a[i+1]==10 then
         c.h=h+i+2
-        return c.lncb(ffi.string(c.buff2, i+k))
+        return c.lncb(c, ffi.string(c.buff2, i+k))
       else b[i]=a[i] end
     end
     return c.lncb(nil, 'Exceeded max')
