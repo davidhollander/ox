@@ -164,9 +164,12 @@ local function _readlnB(c)
     for i=0, l-2 do
       if a[i]==13 and a[i+1]==10 then
         c.h = i<l-2 and h+i+2 or nil
-        print('c.h',c.h, 'i+k',i+k)
+        --print('c.h',c.h, 'i+k',i+k)
         return c.lncb(c, ffi.string(c.buff2, i+k))
-      else print(l-2,i,string.char(c.buff[i+h])) b[i]=a[i]  end
+      else
+        --print(l-2,i,string.char(c.buff[i+h]))
+        b[i]=a[i]
+      end
     end
 
     --not found in buffer
