@@ -168,6 +168,9 @@ S.SOCK_SEQPACKET  = 5
 S.SOCK_DCCP       = 6
 S.SOCK_PACKET     = 10
 
+S.SOL_SOCKET = 1
+S.SO_REUSEADDR = 2
+
 -- poll
 S.POLLIN          = 0x001
 S.POLLPRI         = 0x002

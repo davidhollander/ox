@@ -75,15 +75,19 @@ end
 --- Create a tcp listener on port. Calls back with a table for each accepted connection.
 -- @param port number
 -- @param cb function
+local one = ffi.new('int[1]')
 function tcpserv(port, cb)
+  local s = S.socket(S.AF_INET, S.SOCK_STREAM + S.O_NONBLOCK, 0)
+  if s==-1 then return nil, 'Bad socket', errno() end
+
+  if S.setsockopt(s, S.SOL_SOCKET, S.SO_REUSEADDR, one, sizeof(one))==-1 then
+    return nil, 'Could not setsockopt', errno() end
+
   local addr = S.in_addr_t()
   if S.inet_aton('127.0.0.1', addr)==0 then return nil, 'Bad address', errno() end
 
   local sa = S.sockaddr_in_t(S.AF_INET, L.htons(port), addr)
   if not sa then return nil, 'Bad port', errno() end
-
-  local s = S.socket(S.AF_INET, S.SOCK_STREAM + S.O_NONBLOCK, 0)
-  if s==-1 then return nil, 'Bad socket', errno() end
 
   if S.bind(s, cast(typeof 'struct sockaddr *', sa), sizeof(sa))==-1 then
     return nil, 'Bad bind', ffi.errno() end
@@ -145,7 +149,7 @@ local function _readlnB(c)
   local b = c.buff2 + k
   c.k, c.h = nil, nil
 
-  print('readlnB','h: ',h,'k: ',k,'l: ',l,'m: ',m,'a: ',a,'b: ',b)
+  --print('readlnB','h: ',h,'k: ',k,'l: ',l,'m: ',m,'a: ',a,'b: ',b)
 
   if m+2 < l then --max is limiting factor
     for i=0, m+1 do
@@ -154,7 +158,7 @@ local function _readlnB(c)
         return c.lncb(c, ffi.string(c.buff2, i+k))
       else b[i]=a[i] end
     end
-    return c.lncb(nil, nil, 'Exceeded max')
+    return c.lncb(c, nil, 'Exceeded max')
   else --buffer is limiting factor
     print 'buffer is limiting factor' 
     for i=0, l-2 do
@@ -224,24 +228,6 @@ function read(c, n, cb)
     end
   end)
 end
-
---[[ Ensure an entire message is written
-function write(c, buff, n, cb)
-  local h = 0
-  on_write(c, function()
-    local m = S.write(c.fd, buff+h, n-h)
-    if m==-1 then
-      if ffi.errno()==S.EAGAIN then return
-      else c.closed=true; return S.close(c.fd) end
-    else
-      h = h + m
-      if h>=n then
-        stop_write(c)
-        return cb(true)
-      end
-    end
-  end)
-end]]
 
 function write(c, str, cb)
   print('write', c, str, cb)
@@ -376,13 +362,13 @@ end
 function stop() on=false end
 
 function start(timeout, timeout_int)
-  collectgarbage 'stop'
+  --collectgarbage 'stop'
   expire(timeout or 20, timeout_int or 4)
   on = true
   while on do
-    print 'collectgarbage...'
-    collectgarbage 'collect'
-    print 'collected.'
+    --print 'collectgarbage...'
+    --collectgarbage 'collect'
+    --print 'collected.'
     local fds = S.pollfds_t(#contexts, contexts)
     local stat = S.poll(fds, #contexts, 500)
     time = os.time()
