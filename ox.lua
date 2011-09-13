@@ -17,29 +17,29 @@ local mmin, mmax = math.min, math.max
 local charptr = ffi.typeof 'char [?]'
 local EV_OUT, EV_IN = S.POLLOUT, S.POLLIN
 
-module(... or 'ox', package.seeall)
-on = false
-time = os.time()
-timeout = 20
+local O = {}
+local on = false
+local time = os.time()
+local timeout = 20
 local contexts = {}
 
-function on_read(c, cb)
+local function on_read(c, cb)
   c.events = bit.bxor(c.events, S.POLLIN)
   c.read = cb
 end
-function on_write(c, cb)
+local function on_write(c, cb)
   c.events = bit.bxor(c.events, S.POLLOUT)
   c.write = cb
 end
-function stop_read(c, cb)
+local function stop_read(c, cb)
   c.events = bit.band(c.events, bit.bnot(S.POLLIN))
   c.read = nil
 end
-function stop_write(c, cb)
+local function stop_write(c, cb)
   c.events = bit.band(c.events, bit.bnot(S.POLLOUT))
   c.write = nil
 end
-function bcheck(field, flag)
+local function bcheck(field, flag)
   return bit.band(field, flag)==flag
 end
 -- TCP
@@ -58,7 +58,7 @@ local function tcp_accept(s)
 end
 
 
-function open(name, flag)
+function O.open(name, flag)
   --local fl = S.O_NONBLOCK
   local fl = 0
   if flag=='r' then fl = fl+S.O_RDONLY
@@ -76,7 +76,7 @@ end
 -- @param port number
 -- @param cb function
 local one = ffi.new('int[1]')
-function tcpserv(port, cb)
+function O.tcpserv(port, cb)
   local s = S.socket(S.AF_INET, S.SOCK_STREAM + S.O_NONBLOCK, 0)
   if s==-1 then return nil, 'Bad socket', errno() end
 
@@ -109,7 +109,7 @@ end
 
 --- Callback once when c.buff and c.len have new data
 -- the idea is to always try reading a large amount (8192) to minimize system calls
-function fill(c, cb)
+local function fill(c, cb)
   print('fill', c, cb)
   if c.buff==nil then c.buff = charptr(8192) end
   return on_read(c, function(c)
@@ -184,7 +184,7 @@ end
 
 --- read the next \r\n delimited chunk at most length max
 -- callback with string or nil if max exceeded
-function readln(c, max, cb)
+function O.readln(c, max, cb)
   print('readln',c,max)
   c.k=nil
   c.max = max
@@ -197,7 +197,8 @@ end
 
 --- read exactly the next n bytes, callback with string
 -- accounts for possible leftovers from readln
-function read(c, n, cb)
+-- : not yet tested
+function O.read(c, n, cb)
   local buff, h
 
   if c.h then
@@ -229,7 +230,7 @@ function read(c, n, cb)
   end)
 end
 
-function write(c, str, cb)
+function O.write(c, str, cb)
   print('write', c, str, cb)
   local h = 0
   local n = #str
@@ -250,7 +251,7 @@ function write(c, str, cb)
     end
   end)
 end
-function close(c)
+function O.close(c)
   print('close',c)
   c.closed=true
   return S.close(c.fd)
@@ -259,7 +260,8 @@ end
 
 --- Transfer the next n bytes to destination connection table from a source table
 -- Accounts for leftovers from readln operations performed on src, uses sendfile when possible
-function transfer(des, src, n, cb)
+-- : not yet tested
+function O.transfer(des, src, n, cb)
   local buff, h
 
   if c.h then
@@ -297,18 +299,20 @@ end
 local timers = {}
 
 ---Calls back once at time specified
-function at(utctime, cb)
+local function at(utctime, cb)
   print('at',utctime,cb)
   if utctime<time then return nil, 'Must be in future'
   elseif timers[utctime] then ti(timers[utctime], cb)
   else timers[utctime]={cb} end
   return true
 end
+
+O.at = at
 ---Calls back once in [sec] seconds from now.
-function timeout(sec, cb) return at(time+sec, cb) end
+function O.timeout(sec, cb) return at(time+sec, cb) end
 
 ---Calls back multiple times according to table t
-function cron(t, fn)
+function O.cron(t, fn)
   local t2 = os.date('*t')
   if not t.year then
     if not t.month then
@@ -337,11 +341,11 @@ end
 -- SIGNALS
 --
 local signals={} 
-function bind(name, fn) 
+function O.bind(name, fn) 
   if signals[name] then ti(signals[name], fn) 
   else signals[name]={fn} end 
 end 
-function trigger(name) for i,fn in ipairs(signals) do fn() end end 
+function O.trigger(name) for i,fn in ipairs(signals) do fn() end end 
 
 -- LOOP
 --
@@ -359,9 +363,9 @@ local function expire(timeout, timeout_int)
   at(time+timeout_int, function() expire(timeout, timeout_int) end)
 end
 
-function stop() on=false end
+function O.stop() on=false end
 
-function start(timeout, timeout_int)
+function O.start(timeout, timeout_int)
   --collectgarbage 'stop'
   expire(timeout or 20, timeout_int or 4)
   on = true
