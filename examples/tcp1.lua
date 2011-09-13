@@ -2,7 +2,7 @@
 -- Returns the first request line as an HTTP response
 
 local ox=require'ox'
-local PORT = 8093
+local PORT = ... or 8093
 local ti, tc = table.insert, table.concat
 
 local function response(line)

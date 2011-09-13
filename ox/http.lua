@@ -5,8 +5,8 @@
 -- an http server and utility functions
 
 local ti, tc = table.insert, table.concat
-local H = {}
-
+local ox = require 'ox'
+module(... or 'ox.http', package.seeall)
 local status_line = {
   [100]="HTTP/1.1 100 Continue\r\n",
   [101]="HTTP/1.1 101 Switching Protocols\r\n",
@@ -48,11 +48,11 @@ local status_line = {
   [505]="HTTP/1.1 505 HTTP Version Not Supported\r\n",
 }
 
-H.host = {}
+host = {}
 
 -- from WSAPI https://github.com/keplerproject/wsapi/blob/master/src/wsapi/request.lua
 --- Decode a url string
-function H.url_decode(str)
+function url_decode(str)
   if not str then return nil end
   str = string.gsub (str, "+", " ")
   str = string.gsub (str, "%%(%x%x)", function(h) return string.char(tonumber(h,16)) end)
@@ -62,7 +62,7 @@ end
 
 --make sure to leave '.','-','~','_' as is
 --- Encode a url string
-function H.url_encode(str)
+function url_encode(str)
   if not str then return nil end
   str = string.gsub (str, "\n", "\r\n")
   str = string.gsub (str, "([^%w%.%-~_ ])",
@@ -74,7 +74,7 @@ end
 --- Parse query string or form body
 -- @param qstr string
 -- @return table
-function H.qs_decode(qstr)
+function qs_decode(qstr)
   local t={}
   for k,v in string.gmatch(qstr, "([^&=]+)=([^&=]*)&?") do
     if #v>0 then t[url_decode(k)] = url_decode(v)
@@ -86,7 +86,7 @@ end
 --- Encode query string or form body
 -- @param table
 -- @return string
-function H.qs_encode(t)
+function qs_encode(t)
   local out={}
   for k,v in pairs(t) do
     if v~=true then
@@ -99,7 +99,7 @@ end
 
 url = url_encode
 --- Escape html characters
-function H.eschtml(text)
+function eschtml(text)
   return string.gsub(text or '',"[&<>'\"]",{
     ['&']="&amp;",
     ['<']="&lt;",
@@ -122,16 +122,16 @@ local function chunkwrap(source)
 end
 
 local function server_error(c, err)
-  core.log('500',err)
-  return core.finish(c, tc{status_line[500],'\r\n',err,'\r\n'})
+  --ox.log('500',err)
+  return ox.write(c, tc{status_line[500],'\r\n',err,'\r\n'}, ox.close)
 end
 
 ---Send an HTTP response and close connection when done.
 --@param c table. The connection this applies to.
 --@param status number. The HTTP status code.
 --@param body nil, string, or function. The response body. If a function, the response ends when [body] returns nil
-function H.reply(c, status, body)
-  --print('reply',status)
+function reply(c, status, body)
+  print('reply',status, body)
   local s = status_line[status]
   if not s then return server_error(c,'Bad response status: '..status) end
 
@@ -148,16 +148,16 @@ function H.reply(c, status, body)
       body=chunkwrap(body)
     end
     ti(t, '\r\n')
-    return core.finish_source(c, tc(t), body, '\r\n')
+    return ox.finish_source(c, tc(t), body, '\r\n')
   elseif type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
-    return core.finish(c, tc(t))
-  else return core.finish(c, tc(t)) end
+    return ox.write(c, tc(t), ox.close)
+  else return ox.write(c, tc(t), ox.close) end
 end
 
 ---converts a date into a string appropriate for a HTTP header
 -- ex: Wed, 09 Jun 2021 10:18:14 GMT
-function H.datetime(utcseconds)
+function datetime(utcseconds)
   return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
 end
 local decoders={
@@ -166,72 +166,64 @@ local decoders={
 
 
 local function req_route(c)
+  print('req_route', c)
+  --for i, v in ipairs(mware) do v(c) end
+  local h
+  local rh = c.req.head.Host
+  if rh then
+    for k,v in pairs(host) do
+      if c.req.head.Host:match(k) then h=v; break end
+    end
+  end
+  if not h then return reply(c, 404) end
 
+  local m = h[c.req.method]
+  if not m then return reply(c, 405) end
 
+  local p = c.req.path
+  for k,v in pairs(m) do
+    local capture = {p:match(k)}
+    if #capture>0 then
+      local success, err = pcall(v, c, unpack(capture))
+      if not success then return server_error(c, err) end return
+    end
+  end
+  return reply(c, 404)
 end
 
-
-
-function H.accept(c)
-  local mware = mware or {} 
-
-  local function route(c)
-    print 'route'
-    --for i, v in ipairs(mware) do v(c) end
-    local h
-    local rh = c.req.head.Host
-    if rh then
-      for k,v in pairs(hosts) do
-        if c.req.head.Host:match(k) then h=v; break end
-      end
+local function req_head(c, line)
+  print('req head', c, line)
+  if not line then return reply(c, 413)
+  elseif line=='' then return req_route(c) end
+  --print('PARSE header',line)
+  local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
+  if not key then return reply(c, 400)
+  elseif key=='Cookie' then
+    for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
+      c.req.jar[k]=v
     end
-    if not h then return reply(c, 404) end
-
-    local m = h[c.req.method]
-    if not m then return reply(c, 405) end
-
-    local p = c.req.path
-    for k,v in pairs(m) do
-      local capture = {p:match(k)}
-      if #capture>0 then
-        local success, err = pcall(v, c, unpack(capture))
-        if not success then return server_error(c, err) end return
-      end
-    end
-    return reply(c, 404)
-  end
-
-  local function head(c, line)
-    if not line then return reply(c, 413)
-    elseif line=='' then return route(c) end
-    --print('PARSE header',line)
-    local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
-    if not key then return reply(c, 400)
-    elseif key=='Cookie' then
-      for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
-        c.req.jar[k]=v
-      end
-    else c.req.head[key]=val end
-    return core.readln(c, 2048, head)
-  end
- 
-  local _methods = {GET=true,POST=true,PUT=true,DELETE=true}
-  local function status(c, line)
-    if not line then return reply(c, 414) end
-    local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
-    if not _methods[method] then c.fd:close(); c.closed=true return
-    else c.req.method=method; c.req.path=path; return core.readln(c, 2048, head) end
-  end
-
-  return core.serve(port, function(c)
-    c.req = {head={},jar={}}
-    c.res={head={},jar={}}
-    c.reply = reply
-    core.readln(c, 2048, status)
-  end)
+  else c.req.head[key]=val end
+  return ox.readln(c, 2048, req_head)
 end
 
-function H.readbody(maxfiles, maxsize, decoders, cb)
+local _methods = {GET=true,POST=true,PUT=true,DELETE=true}
+local function req_status(c, line)
+  print('req status', c, line)
+  if not line then return reply(c, 414) end
+  local method, path = line:match('(%w+) ([^%s]+) HTTP/1%.%d$')
+  if not _methods[method] then c.fd:close(); c.closed=true return
+  else c.req.method=method; c.req.path=path; return ox.readln(c, 2048, req_head) end
+end
+
+function accept(c)
+  print('accept', c)
+  c.req = {head={},jar={}}
+  c.res={head={},jar={}}
+  c.reply = reply
+  return ox.readln(c, 2048, req_status)
+end
+
+function readbody(maxfiles, maxsize, decoders, cb)
 
   local function chunkend(c)
     c.data = tc(c.chunks)
@@ -239,18 +231,18 @@ function H.readbody(maxfiles, maxsize, decoders, cb)
 
   local function chunk(c, data)
     ti(c.chunks, data)
-    return core.read(c, 30, chunklen)
+    return ox.read(c, 30, chunklen)
   end
 
   local function chunklen(c, line)
     local len = tonumber(line, 16)
-    if len then return core.read(c, len, chunk) end
+    if len then return ox.read(c, len, chunk) end
   end
 
   local function field(c, line)
     local d = c.data[#c.data]
 
-    if line=='' then return core.read(c, len, file) end
+    if line=='' then return ox.read(c, len, file) end
     local key, val = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
     if key=='Content-Type' then d.ct=val
     elseif key=='Content-Disposition' then d.cd=val end
@@ -259,7 +251,7 @@ function H.readbody(maxfiles, maxsize, decoders, cb)
   local function boundary(c, line)
     if line==c.bdr then
       ti(c.data, {})
-      return core.readln(c, 2048, field)
+      return ox.readln(c, 2048, field)
     end
   end
 
@@ -271,8 +263,8 @@ function H.readbody(maxfiles, maxsize, decoders, cb)
       local te = c.req.head['Transfer-Encoding']
       local bdr = ct and ct:match'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
 
-      if bdr then c.bdr=bdr; core.readln(c, 2048, boundary)
-      elseif te=='Chunked' then return core.readln(c, 32, chunklen) end
+      if bdr then c.bdr=bdr; ox.readln(c, 2048, boundary)
+      elseif te=='Chunked' then return ox.readln(c, 32, chunklen) end
       cb(c, ...)
     end
   end
@@ -299,11 +291,11 @@ local function request(c)
       ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
       body=chunkwrap(body)
     end
-    core.send_source(c, tc(t), body, '\r\n')
+    ox.send_source(c, tc(t), body, '\r\n')
   elseif type(body)=='string' then
     ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
-    core.send(c, tc(t))
-  else ti(t, '\r\n'); core.send(c, tc(t)) end
+    ox.send(c, tc(t))
+  else ti(t, '\r\n'); ox.send(c, tc(t)) end
 end
 
 --- Make an asynchronous HTTP request
@@ -316,7 +308,7 @@ end
 --  - head: table of http request headers. Optional. Host header added automatically.
 --  - jar: table of cookies. Optional.
 -- @param cb function that will be called with (nil, error) or (response) table.
-function H.fetch(req, cb)
+function fetch(req, cb)
 
   local function head_done(c)
     --[[if c.maxlength then
@@ -340,7 +332,7 @@ function H.fetch(req, cb)
       local k,v = val:match('([^;=%s]+)=([^;=%s]+)')
       if k and v then c.res.jar[k]=v end
     else c.res.head[key]=val end
-    return core.readln(c, 2048, head)
+    return ox.readln(c, 2048, head)
   end
 
   local function status(c, line)
@@ -350,11 +342,11 @@ function H.fetch(req, cb)
     if not version then c.closed=true c.fd:close() return cb(nil,'Bad status') end
     c.res.version=version
     c.res.status=tonumber(status)
-    return core.readln(c, 2048, head)
+    return ox.readln(c, 2048, head)
   end
 
-  return core.connect(req.host, req.port or 80, function(c)
-    core.readln(c, 2048, status)
+  return ox.connect(req.host, req.port or 80, function(c)
+    ox.readln(c, 2048, status)
     c.req=req
     if not c.req.head.Host then c.req.head.Host=req.host end
     c.res={head={},jar={}}

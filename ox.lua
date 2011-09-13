@@ -17,6 +17,7 @@ local mmin, mmax = math.min, math.max
 local charptr = ffi.typeof 'char [?]'
 local EV_OUT, EV_IN = S.POLLOUT, S.POLLIN
 
+module(... or 'ox', package.seeall)
 on = false
 time = os.time()
 timeout = 20
@@ -56,8 +57,20 @@ local function tcp_accept(s)
   end
 end
 
-module(... or 'ox', package.seeall)
 
+function open(name, flag)
+  --local fl = S.O_NONBLOCK
+  local fl = 0
+  if flag=='r' then fl = fl+S.O_RDONLY
+  elseif flag=='w' then fl = fl+S.O_WRONLY end
+  local fd = S.open(name, fl)
+  if fd==-1 then return nil, 'Could not open file' end
+
+  local c = {fd = fd,events=0,revents=0}
+  ti(contexts, c)
+  print('opened',fd)
+  return c
+end
 
 --- Create a tcp listener on port. Calls back with a table for each accepted connection.
 -- @param port number
@@ -93,11 +106,13 @@ end
 --- Callback once when c.buff and c.len have new data
 -- the idea is to always try reading a large amount (8192) to minimize system calls
 function fill(c, cb)
-  if not c.buff then c.buff = charptr(8192) end
-  on_read(c, function(c)
+  print('fill', c, cb)
+  if c.buff==nil then c.buff = charptr(8192) end
+  return on_read(c, function(c)
+    print('on_read','fill',c)
     local m = S.read(c.fd, c.buff, 8192)
     if m==-1 then
-      if ffi.errno()==S.EAGAIN then return
+      if ffi.errno()==S.EAGAIN then print 'EAGAIN' return
       else c.closed=true; return S.close(c.fd) end
     else c.len=tonumber(m); stop_read(c)  return cb(c) end
   end)
@@ -106,6 +121,7 @@ end
 local _readln_border, _readlnB
 
 local function _readln_border(c)
+  print('readln_border',c,'c.len:',c.len,'c.h:',c.h,'c.k:',c.k)
   if c.buff[0]==10 then
     c.h=c.len>1 and 1 or nil
     local k=c.k
@@ -120,6 +136,7 @@ end
 
 -- possible read and write offset
 local function _readlnB(c)
+  print('_readlnB',c)
   local h = c.h or 0
   local k = c.k or 0
   local l = c.len - h
@@ -128,7 +145,7 @@ local function _readlnB(c)
   local b = c.buff2 + k
   c.k, c.h = nil, nil
 
-  --print('readlnB',h,k,l,m,a,b)
+  print('readlnB','h: ',h,'k: ',k,'l: ',l,'m: ',m,'a: ',a,'b: ',b)
 
   if m+2 < l then --max is limiting factor
     for i=0, m+1 do
@@ -137,16 +154,19 @@ local function _readlnB(c)
         return c.lncb(c, ffi.string(c.buff2, i+k))
       else b[i]=a[i] end
     end
-    return c.lncb(nil, 'Exceeded max')
+    return c.lncb(nil, nil, 'Exceeded max')
   else --buffer is limiting factor
+    print 'buffer is limiting factor' 
     for i=0, l-2 do
       if a[i]==13 and a[i+1]==10 then
         c.h = i<l-2 and h+i+2 or nil
-        return c.lncb(ffi.string(c.buff2, i+k))
-      else b[i]=a[i] end
+        print('c.h',c.h, 'i+k',i+k)
+        return c.lncb(c, ffi.string(c.buff2, i+k))
+      else print(l-2,i,string.char(c.buff[i+h])) b[i]=a[i]  end
     end
 
     --not found in buffer
+    print 'not found in buffer'
     if a[l-1]==13 then
       c.k=k+l-1
       return fill(c, _readln_border)
@@ -161,10 +181,12 @@ end
 --- read the next \r\n delimited chunk at most length max
 -- callback with string or nil if max exceeded
 function readln(c, max, cb)
+  print('readln',c,max)
   c.k=nil
   c.max = max
   c.lncb = cb
   c.buff2 = charptr(max)
+  print('readln',c.h, c.buff2)
   if c.h then return _readlnB(c)
   else return fill(c, _readlnB) end
 end
@@ -188,7 +210,7 @@ function read(c, n, cb)
     buff = charptr(n) 
   end
 
-  on_read(c, function(c)
+  return on_read(c, function(c)
     local m = S.read(c.fd, buff+h, n-h)
     if m==-1 then
       if ffi.errno()==S.EAGAIN then return
@@ -203,7 +225,7 @@ function read(c, n, cb)
   end)
 end
 
--- Ensure an entire message is written
+--[[ Ensure an entire message is written
 function write(c, buff, n, cb)
   local h = 0
   on_write(c, function()
@@ -219,13 +241,16 @@ function write(c, buff, n, cb)
       end
     end
   end)
-end
+end]]
 
 function write(c, str, cb)
+  print('write', c, str, cb)
   local h = 0
   local n = #str
   local buff = charptr(n, str)
+  print('Writebuff',buff)
   on_write(c, function()
+    print('write','on_write',c)
     local m = S.write(c.fd, buff+h, n-h)
     if m==-1 then
       if ffi.errno()==S.EAGAIN then return
@@ -240,6 +265,7 @@ function write(c, str, cb)
   end)
 end
 function close(c)
+  print('close',c)
   c.closed=true
   return S.close(c.fd)
 end
@@ -286,6 +312,7 @@ local timers = {}
 
 ---Calls back once at time specified
 function at(utctime, cb)
+  print('at',utctime,cb)
   if utctime<time then return nil, 'Must be in future'
   elseif timers[utctime] then ti(timers[utctime], cb)
   else timers[utctime]={cb} end
@@ -346,10 +373,16 @@ local function expire(timeout, timeout_int)
   at(time+timeout_int, function() expire(timeout, timeout_int) end)
 end
 
+function stop() on=false end
+
 function start(timeout, timeout_int)
+  collectgarbage 'stop'
   expire(timeout or 20, timeout_int or 4)
   on = true
   while on do
+    print 'collectgarbage...'
+    collectgarbage 'collect'
+    print 'collected.'
     local fds = S.pollfds_t(#contexts, contexts)
     local stat = S.poll(fds, #contexts, 500)
     time = os.time()
