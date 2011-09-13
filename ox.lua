@@ -369,7 +369,7 @@ end
 function O.stop() on=false end
 
 function O.start(timeout, timeout_int)
-  --collectgarbage 'stop'
+  collectgarbage 'stop'
   expire(timeout or 20, timeout_int or 4)
   on = true
   while on do
@@ -379,7 +379,7 @@ function O.start(timeout, timeout_int)
     local fds = S.pollfds_t(#contexts, contexts)
     local stat = S.poll(fds, #contexts, 500)
     time = os.time()
-    --print('poll:', contexts, #contexts, fds, n)
+    print('poll:', contexts, #contexts, fds, n)
     if stat>0 then
       local old = contexts
       contexts = {}
