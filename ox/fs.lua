@@ -1,7 +1,7 @@
 -- FFI
 --
-ffi=require'ffi'
-ffi.cdef[[
+local ffi = require'ffi'
+ffi.cdef [[
 typedef unsigned long ino_t;
 typedef long off_t;
 typedef struct DIR DIR;
@@ -12,8 +12,7 @@ struct dirent {
     unsigned char  d_type;      /* type of file */
     char           d_name[256]; /* filename */
 };
-]]
-ffi.cdef[[
+
 DIR *opendir(const char *name);
 int closedir(DIR *dir);
 struct dirent *readdir(DIR *dir);

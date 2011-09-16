@@ -1,0 +1,15 @@
+#!/usr/bin/luajit
+local fs = require 'ox.fs'
+
+local skip = {
+
+}
+
+for fname in fs.gdir 'tests/?.lua' do
+  if not skip[fname] then
+    print(fname)
+    print '--'
+    loadfile(fname)()
+    print ''
+  end
+end
