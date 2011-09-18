@@ -16,7 +16,7 @@ local typeof, cast, sizeof, errno = ffi.typeof, ffi.cast, ffi.sizeof, ffi.errno
 local mmin, mmax = math.min, math.max
 local charptr = ffi.typeof 'char [?]'
 local EV_OUT, EV_IN = S.POLLOUT, S.POLLIN
-
+local C = ffi.C
 local O = {}
 local on = false
 local time = os.time()
@@ -45,11 +45,12 @@ end
 -- TCP
 --
 
-local _sa = cast(typeof 'struct sockaddr *', S.sockaddr_storage_t())
-local _len = S.int1_t(sizeof(S.sockaddr_storage_t()))
+local _ss = ffi.new 'struct sockaddr_storage'
+local _sa = cast('struct sockaddr *', _ss)
+local _len = ffi.new('int [1]',sizeof(_ss))
 local function tcp_accept(s)
   while true do
-    local fd = S.accept4(s.fd, _sa, _len, S.O_NONBLOCK)
+    local fd = C.accept4(s.fd, _sa, _len, S.O_NONBLOCK)
     if fd==-1 then break end
     local c = {fd = fd, events = 0, revents = 0}
     ti(contexts, c)
@@ -63,35 +64,35 @@ function O.open(name, flag)
   local fl = 0
   if flag=='r' then fl = fl+S.O_RDONLY
   elseif flag=='w' then fl = fl+S.O_WRONLY end
-  local fd = S.open(name, fl)
+  local fd = C.open(name, fl)
   if fd==-1 then return nil, 'Could not open file' end
 
   local c = {fd = fd,events=0,revents=0}
   ti(contexts, c)
-  print('opened',fd)
+  --print('opened',fd)
   return c
 end
 
 --- Create a tcp listener on port. Calls back with a table for each accepted connection.
 -- @param port number
 -- @param cb function
-local one = ffi.new('int[1]')
+local one = ffi.new 'int[1]'
 function O.tcpserv(port, cb)
-  local s = S.socket(S.AF_INET, S.SOCK_STREAM + S.O_NONBLOCK, 0)
+  local s = C.socket(S.AF_INET, S.SOCK_STREAM + S.O_NONBLOCK, 0)
   if s==-1 then return nil, 'Bad socket', errno() end
 
-  if S.setsockopt(s, S.SOL_SOCKET, S.SO_REUSEADDR, one, sizeof(one))==-1 then
+  if C.setsockopt(s, S.SOL_SOCKET, S.SO_REUSEADDR, one, sizeof(one))==-1 then
     return nil, 'Could not setsockopt', errno() end
 
   local addr = S.in_addr_t()
-  if S.inet_aton('127.0.0.1', addr)==0 then return nil, 'Bad address', errno() end
+  if C.inet_aton('127.0.0.1', addr)==0 then return nil, 'Bad address', errno() end
 
   local sa = S.sockaddr_in_t(S.AF_INET, L.htons(port), addr)
   if not sa then return nil, 'Bad port', errno() end
 
-  if S.bind(s, cast(typeof 'struct sockaddr *', sa), sizeof(sa))==-1 then
+  if C.bind(s, cast('struct sockaddr *', sa), sizeof(sa))==-1 then
     return nil, 'Bad bind', ffi.errno() end
-  if S.listen(s, 1024)==-1 then return nil, 'Bad listen', errno() end
+  if C.listen(s, 1024)==-1 then return nil, 'Bad listen', errno() end
 
   ti(contexts, {
     fd = s,
@@ -110,14 +111,17 @@ end
 --- Callback once when c.buff and c.len have new data
 -- the idea is to always try reading a large amount (8192) to minimize system calls
 local function fill(c, cb)
-  print('fill', c, cb)
-  if c.buff==nil then c.buff = charptr(8192) end
+  --print('fill', c, cb)
+  if c.buff==nil then
+    local buff = charptr(8192)
+    c.buff = buff
+  end
   return on_read(c, function(c)
-    print('on_read','fill',c)
-    local m = S.read(c.fd, c.buff, 8192)
+    --print('on_read','fill',c)
+    local m = C.read(c.fd, c.buff, 8192)
     if m==-1 then
       if ffi.errno()==S.EAGAIN then print 'EAGAIN' return
-      else c.closed=true; return S.close(c.fd) end
+      else c.closed=true; return C.close(c.fd) end
     else c.len=tonumber(m); stop_read(c)  return cb(c) end
   end)
 end
@@ -125,7 +129,7 @@ end
 local _readln_border, _readlnB
 
 local function _readln_border(c)
-  print('readln_border',c,'c.len:',c.len,'c.h:',c.h,'c.k:',c.k)
+  --print('readln_border',c,'c.len:',c.len,'c.h:',c.h,'c.k:',c.k)
   if c.buff[0]==10 then
     c.h=c.len>1 and 1 or nil
     local k=c.k
@@ -140,13 +144,13 @@ end
 
 -- possible read and write offset
 local function _readlnB(c)
-  print('_readlnB',c)
+  --print('_readlnB',c)
   local h = c.h or 0
   local k = c.k or 0
   local l = c.len - h
   local m = c.max - k
   local a = c.buff + h
-  local b = c.buff2 + k
+  local b = c.buff2 + k --sometimes a nil value??
   c.k, c.h = nil, nil
 
   --print('readlnB','h: ',h,'k: ',k,'l: ',l,'m: ',m,'a: ',a,'b: ',b)
@@ -160,7 +164,7 @@ local function _readlnB(c)
     end
     return c.lncb(c, nil, 'Exceeded max')
   else --buffer is limiting factor
-    print 'buffer is limiting factor' 
+    --print 'buffer is limiting factor' 
     for i=0, l-2 do
       if a[i]==13 and a[i+1]==10 then
         c.h = i<l-2 and h+i+2 or nil
@@ -173,7 +177,7 @@ local function _readlnB(c)
     end
 
     --not found in buffer
-    print 'not found in buffer'
+    --print 'not found in buffer'
     if a[l-1]==13 then
       c.k=k+l-1
       return fill(c, _readln_border)
@@ -188,12 +192,13 @@ end
 --- read the next \r\n delimited chunk at most length max
 -- callback with string or nil if max exceeded
 function O.readln(c, max, cb)
-  print('readln',c,max)
+  --print('readln',c,max)
+  local buff2 = charptr(max)
   c.k=nil
   c.max = max
   c.lncb = cb
-  c.buff2 = charptr(max)
-  print('readln',c.h, c.buff2)
+  c.buff2 = buff2
+  --print('readln',c.h, c.buff2)
   if c.h then return _readlnB(c)
   else return fill(c, _readlnB) end
 end
@@ -219,10 +224,10 @@ function O.read(c, n, cb)
   end
 
   return on_read(c, function(c)
-    local m = S.read(c.fd, buff+h, n-h)
+    local m = C.read(c.fd, buff+h, n-h)
     if m==-1 then
       if ffi.errno()==S.EAGAIN then return
-      else c.closed=true; return S.close(c.fd) end
+      else c.closed=true; return C.close(c.fd) end
     else
       h = h + m
       if h>=n then
@@ -234,17 +239,17 @@ function O.read(c, n, cb)
 end
 
 function O.write(c, str, cb)
-  print('write', c, str, cb)
+  --print('write', c, str, cb)
   local h = 0
   local n = #str
   local buff = charptr(n, str)
-  print('Writebuff',buff)
+  --print('Writebuff',buff)
   on_write(c, function()
-    print('write','on_write',c)
-    local m = S.write(c.fd, buff+h, n-h)
+    --print('write','on_write',c)
+    local m = C.write(c.fd, buff+h, n-h)
     if m==-1 then
       if ffi.errno()==S.EAGAIN then return
-      else c.closed=true; return S.close(c.fd) end
+      else c.closed=true; return C.close(c.fd) end
     else
       h = h + m
       if h>=n then
@@ -255,9 +260,9 @@ function O.write(c, str, cb)
   end)
 end
 function O.close(c)
-  print('close',c)
+  --print('close',c)
   c.closed=true
-  return S.close(c.fd)
+  return C.close(c.fd)
 end
 
 
@@ -284,7 +289,7 @@ function O.transfer(des, src, n, cb)
   local rdy = false
   local function combine(c)
     if rdy then
-      local m = S.sendfile(a.fd, b.fd, off, count)
+      local m = C.sendfile(a.fd, b.fd, off, count)
       if m==-1 then
         if ffi.errno()==S.EAGAIN then
           src.events = S.POLLIN; des.events = S.POLLOUT; return
@@ -303,7 +308,7 @@ local timers = {}
 
 ---Calls back once at time specified
 local function at(utctime, cb)
-  print('at',utctime,cb)
+  --print('at',utctime,cb)
   if utctime<time then return nil, 'Must be in future'
   elseif timers[utctime] then ti(timers[utctime], cb)
   else timers[utctime]={cb} end
@@ -360,7 +365,7 @@ local function expire(timeout, timeout_int)
   for i,c in ipairs(old) do
     if brk then contexts[i] = c
     elseif not c.accept_time then ti(contexts, c)
-    elseif c.accept_time < old then c.closed=true; S.close(c.fd) print 'expired'
+    elseif c.accept_time < old then c.closed=true; C.close(c.fd) print 'expired'
     else brk=true; ti(contexts, c) end
   end
   at(time+timeout_int, function() expire(timeout, timeout_int) end)
@@ -369,17 +374,13 @@ end
 function O.stop() on=false end
 
 function O.start(timeout, timeout_int)
-  collectgarbage 'stop'
   expire(timeout or 20, timeout_int or 4)
   on = true
   while on do
-    --print 'collectgarbage...'
-    --collectgarbage 'collect'
-    --print 'collected.'
-    local fds = S.pollfds_t(#contexts, contexts)
-    local stat = S.poll(fds, #contexts, 500)
+    local fds = ffi.new('struct pollfd[?]', #contexts, contexts)
+    local stat = C.poll(fds, #contexts, 500)
     time = os.time()
-    print('poll:', contexts, #contexts, fds, n)
+    --print('poll:', contexts, #contexts, fds, n)
     if stat>0 then
       local old = contexts
       contexts = {}

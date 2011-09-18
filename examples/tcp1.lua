@@ -11,7 +11,6 @@ end
 
 
 local function handle(c, line)
-  print(line)
   return ox.write(c, response(line), ox.close)
 end
 

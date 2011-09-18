@@ -242,5 +242,5 @@ S.int1_t = typeof("int[1]")
 
 S.buffer_t = typeof("char[?]")
 
-local C = ffi.C
-return setmetatable({}, {__index=function(t,k) return S[k] or C[k] end})
+--return setmetatable({}, {__index=function(t,k) return S[k] or C[k] end})
+return S
