@@ -167,7 +167,6 @@ end
 --
 cdef 'int close(int fd)'
 function ox.close(c)
-  print 'close'
   C.close(c.fd)
   c.closed=true
 end
@@ -244,15 +243,15 @@ cdef [[struct sockaddr_storage {
 }]]
 cdef 'int listen(int fd, int backlog)'
 local function tcp_accept(s)
-  print 'accept'
   while true do
-    print 'accepting'
     local ss = ffi.new 'struct sockaddr_storage'
     local size = ffi.new 'unsigned int[1]'
     local sa = ffi.cast('struct sockaddr *', ss)
     local fd = C.accept4(s.fd, sa, size, SOCK_NONBLOCK)
-    if fd==-1 then print(fd, ffi.errno()) return end
-    print('accepted', tonumber(sa.sa_family), size[0])
+    if fd==-1 then
+      --print(fd, ffi.errno()==EAGAIN)
+      return
+    end
     local c = {fd = fd, events = 0, revents = 0, accept_time=ox.time}
     ti(contexts, c)
     s.on_accept(c)
@@ -280,7 +279,7 @@ function ox.tcpserv(port, cn)
   local c = {fd = s, events = EV_IN, revents = 0, on_read = tcp_accept, on_accept = cn}
 
   ti(contexts, c)
-  --return tcp_accept(c)
+  return true
 end
 
 function ox.tcpconn(host, port, cb)
@@ -386,7 +385,7 @@ function ox.start(init)
       for i=0, #old -1 do
         local c = old[i+1]
         --print(c, fds[i].revents)
-        if bcheck(fds[i].revents, EV_IN) then print'bchecked' c:on_read() end
+        if bcheck(fds[i].revents, EV_IN) then c:on_read() end
         if not c.closed and bcheck(fds[i].revents, EV_OUT) then c:on_write() end
         if not c.closed then ti(contexts, c) end
       end
