@@ -1,10 +1,20 @@
 #!/usr/bin/luajit
-local fs = require 'ox.fs'
 
-local skip = {
-
+local tests = {
+  'tests/ox1.lua',
+  'tests/poll.lua'
 }
 
+for i,fname in ipairs(tests) do
+  print(fname)
+  print '--'
+  loadfile(fname)()
+  print ''
+end
+
+
+--[[
+local fs = require 'ox.fs'
 for fname in fs.gdir 'tests/?.lua' do
   if not skip[fname] then
     print(fname)
@@ -13,3 +23,6 @@ for fname in fs.gdir 'tests/?.lua' do
     print ''
   end
 end
+
+]]
+
