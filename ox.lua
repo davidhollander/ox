@@ -120,19 +120,23 @@ local bcheck = ox.bcheck
 function ox.on_read(src, cb)
   src.on_read = cb
   src.events = bxor(src.events, EV_IN)
-end
+end; local on_read = ox.on_read
+
 function ox.stop_read(src)
   src.on_read = nil
   src.events = band(src.events, maskin)
-end
+end; local stop_read = ox.stop_read
+
 function ox.on_write(des, cb)
   des.on_write = cb
   des.events = bxor(des.events, EV_OUT)
-end
+end; local on_write = ox.on_write
+
 function ox.stop_write(des)
   des.on_write = nil
   des.events = band(des.events, maskout)
-end
+end; local stop_write = ox.stop_write
+
 function ox.on_transfer(des, src, cb)
   src.events = bxor(src.events, EV_IN)
   des.events = bxor(des.events, EV_OUT)
@@ -161,10 +165,36 @@ end
 
 -- AIO
 --
-function ox.fill(src, cb)
+cdef 'int close(int fd)'
+function ox.close(c)
+  print 'close'
+  C.close(c.fd)
+  c.closed=true
 end
+cdef 'int read(int fd, char * buffer, int n)'
+cdef 'int write(int fd, char * buffer, int n)'
+local EINTER = 4
+local vla_char = typeof 'char [?]'
+local newbuffer = ffi.typeof 'char[8192]'
+local EAGAIN = 11
+
+function ox.fill(src, cn)
+  if not src.buff then src.buff = newbuffer() end
+  return on_read(src, function()
+    local i = C.read(src.fd, src.buff, 8192)
+    if i==-1 then
+      if errno() == EAGAIN then print 'eagain' return
+      else return ox.close(src) end
+    else
+      src.len = i
+      return cn(src)
+    end
+  end)
+end
+
 function ox.readln(src, max, cb)
 end
+
 function ox.read(src, n, cb)
 end
 function ox.write(des, n, cb)
@@ -212,7 +242,7 @@ cdef [[struct sockaddr_storage {
   unsigned long int __ss_align;
   char __ss_padding[128 - 2 * sizeof(unsigned long int)]; /* total length 128 */
 }]]
-
+cdef 'int listen(int fd, int backlog)'
 local function tcp_accept(s)
   print 'accept'
   while true do
@@ -222,8 +252,9 @@ local function tcp_accept(s)
     local sa = ffi.cast('struct sockaddr *', ss)
     local fd = C.accept4(s.fd, sa, size, SOCK_NONBLOCK)
     if fd==-1 then print(fd, ffi.errno()) return end
-    print('accepted', ss.sa_family_t)
+    print('accepted', tonumber(sa.sa_family), size[0])
     local c = {fd = fd, events = 0, revents = 0, accept_time=ox.time}
+    ti(contexts, c)
     s.on_accept(c)
   end
 end
@@ -242,9 +273,12 @@ function ox.tcpserv(port, cn)
   local myaddr = cast('struct sockaddr *', ip6addr)
   local i = C.bind(s, myaddr, sizeof(ip6addr))
   if i==-1 then return nil, 'could not bind: '..errno() end
-  print('bind', i)
+   
+  local i = C.listen(s, 1024) 
+  if i==-1 then return nil, 'Could not listen: '..errno() end
+
   local c = {fd = s, events = EV_IN, revents = 0, on_read = tcp_accept, on_accept = cn}
-  print('bind',c.on_read)
+
   ti(contexts, c)
   --return tcp_accept(c)
 end
@@ -259,18 +293,6 @@ end
 
 -- BLOCKING IO
 --
-cdef 'int close(int fd)'
-function ox.close(c)
-  C.close(c.fd)
-  c.closed=true
-end
-
-
-cdef 'int read(int fd, char * buffer, int n)'
-cdef 'int write(int fd, char * buffer, int n)'
-local EINTER = 4
-local vla_char = typeof 'char [?]'
-
 local function b_write(c, ...)
   local str = tc {...}
   local buff = vla_char(#str, str)
@@ -348,9 +370,9 @@ end
 
 cdef 'struct pollfd {int fd; short events; short revents;}'
 cdef 'typedef unsigned long nfds_t'
-cdef 'int poll (struct pollfd *fds, nfds_t nfds, int timeout)'
+cdef 'int poll(struct pollfd *fds, nfds_t nfds, int timeout)'
 local pollfds = ffi.typeof 'struct pollfd[?]'
-local fds
+
 function ox.start(init)
   ox.on = true
   if init then init() end
@@ -359,11 +381,14 @@ function ox.start(init)
     tick()
     fds = pollfds(#contexts, contexts)
     if C.poll(fds, #contexts, 1000) > 0 then
-      for i=0, #contexts -1 do
-        local c = contexts[i+1]
-        print(c, fds[i].revents)
+      local old = contexts
+      contexts = {}
+      for i=0, #old -1 do
+        local c = old[i+1]
+        --print(c, fds[i].revents)
         if bcheck(fds[i].revents, EV_IN) then print'bchecked' c:on_read() end
         if not c.closed and bcheck(fds[i].revents, EV_OUT) then c:on_write() end
+        if not c.closed then ti(contexts, c) end
       end
     end
   end
