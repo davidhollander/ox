@@ -249,7 +249,7 @@ function connect(host, port, cb)
     else return nil, e, m end
   end
 
-  local ip = host:match('^%d+\.%d+\.%d+\.%d+$')
+  local ip = host:match('^%d+%.%d+%.%d+%.%d+$')
   if ip then return _connect(ip, port, cb)
   else
     host_cache(host, function(ip) print(ip) _connect(ip, port, cb) end)
