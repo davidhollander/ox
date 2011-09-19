@@ -174,7 +174,7 @@ function serve(port, mware)
   local mware = mware or {} 
 
   local function route(c)
-    print 'route'
+    --print 'route'
     --for i, v in ipairs(mware) do v(c) end
     local h
     local rh = c.req.head.Host

@@ -103,11 +103,11 @@ end
 function finish(c, msg)
   local n=0
   on_write(c, function(c)
-    print 'finish write CB'
+    --print 'finish write CB'
     local m = c.fd:send(msg, n)
-    if m==nil then print'finish error'; c.closed=true; return c.fd:close() end
+    if m==nil then c.closed=true; return c.fd:close() end
     n=n+m
-    if n>=#msg then print 'finish success'; c.closed=true; return c.fd:close() end
+    if n>=#msg then c.closed=true; return c.fd:close() end
   end)
 end
 
