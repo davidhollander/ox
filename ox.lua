@@ -2,12 +2,70 @@
 -- Copyright (C) 2011 by David Hollander
 -- MIT License, see LICENSE
 
--- REQUIRE
+
+-- FFI
 --
 local ffi = require 'ffi'
 local C = ffi.C
 local cdef,cast,typeof,sizeof,errno,new = ffi.cdef,ffi.cast,ffi.typeof,ffi.sizeof,ffi.errno,ffi.new
+-- typedefs
+cdef[[
+typedef int32_t pid_t;
+typedef uint32_t mode_t;
+typedef unsigned short int sa_family_t;
+typedef uint32_t socklen_t;
+typedef uint16_t in_port_t;
+typedef unsigned long nfds_t;
+]]
+-- structs
+cdef[[
+struct pollfd {int fd; short events; short revents;};
+struct sockaddr {sa_family_t sa_family; char sa_data[14];};
+struct in6_addr {unsigned char s6_addr[16];};
+struct sockaddr_in6 {
+  uint16_t sin6_family;
+  uint16_t sin6_port;
+  uint32_t sin6_flowinfo;
+  struct in6_addr sin6_addr;
+  uint32_t sin6_scope_id;
+};
+]]
+-- funcs
+cdef[[
+pid_t fork(void);
+int kill(pid_t pid, int sig);
+pid_t setsid(void);
+int chdir(const char *path);
+mode_t umask(mode_t mask);
+int close(int fd);
+int read(int fd, char * buffer, int n);
+int write(int fd, char * buffer, int n);
+int socket(int domain, int type, int protocol);
+int inet_pton(int af, const char *src, void *dst);
+int bind(int sockfd, const struct sockaddr *myaddr, socklen_t addrlen);
+int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
+int listen(int fd, int backlog);
+int pipe(int filedes[2]);
+int pipe2(int intfiledes[2], int flags);
+int fcntl(int fd, int cmd, long arg);
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+]]
+-- constants
+local F_SETFL = 4
+local SOCK_STREAM, AF_INET6, SO_REUSEADDR = 1, 10, 2
+local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
+local EV_IN, EV_OUT = 1, 4
+local EINTER, EAGAIN = 4, 11
+local LOOPBACK = new 'struct in6_addr'
+assert(C.inet_pton(AF_INET6, '::', LOOPBACK)>0, 'Could not cache ip6 loopback')
+
+
+local CR = string.byte '\r'
+local LF = string.byte '\n'
+local mmin, mmax = math.min, math.max
 local ti, tc = table.insert, table.concat
+local bxor, band, bnot = bit.bxor, bit.band, bit.bnot
+local maskin, maskout = bnot(EV_IN), bnot(EV_OUT)
 
 -- MODULE
 --
@@ -18,9 +76,7 @@ local ox = {
   time_warp = 0,
   expire = 20,
   children = {},
-  C = C
 }
-
 
 function ox.logfile(name)
   local f = io.open(name, 'a+')
@@ -30,8 +86,6 @@ function ox.logfile(name)
   end
 end
 
-cdef 'typedef int32_t pid_t;'
-cdef 'pid_t fork(void)'
 function ox.split(n, cb)
   local pids = {}
   for i=1, n do
@@ -45,7 +99,6 @@ function ox.split(n, cb)
   for pid in pairs(pids) do ox.children[pid]=true end
 end
 
-cdef 'int kill(pid_t pid, int sig)'
 function ox.kill(pid)
   if pid then
     return C.kill(pid, 9)
@@ -57,10 +110,6 @@ function ox.kill(pid)
   end
 end
 
-cdef 'pid_t setsid(void)'
-cdef 'int chdir(const char *path)'
-cdef 'typedef uint32_t mode_t'
-cdef 'mode_t umask(mode_t mask)'
 function ox.daemon(c, cb)
   local pid = C.fork()
   if pid==-1 then return nil, 'Could not fork'
@@ -84,6 +133,7 @@ function ox.daemon(c, cb)
     ox.children[pid] = true
   end
 end
+
 -- TIMERS
 --
 local timers = {}
@@ -101,36 +151,28 @@ local function tick()
   end
 end
 
-
-
 -- POLL
 --
 local contexts = {}
-local bxor, band, bnot = bit.bxor, bit.band, bit.bnot
-local EV_IN, EV_OUT = 1, 4
-local maskin, maskout = bnot(EV_IN), bnot(EV_OUT)
+
 function ox.bcheck(a, b)
   return band(a, b) == b
 end
 
-
-
-local bcheck = ox.bcheck
-
 function ox.on_read(src, cb)
   src.on_read = cb
   src.events = bxor(src.events, EV_IN)
-end; local on_read = ox.on_read
+end
 
 function ox.stop_read(src)
   src.on_read = nil
   src.events = band(src.events, maskin)
-end; local stop_read = ox.stop_read
+end
 
 function ox.on_write(des, cb)
   des.on_write = cb
   des.events = bxor(des.events, EV_OUT)
-end; local on_write = ox.on_write
+end
 
 function ox.stop_write(des)
   des.on_write = nil
@@ -165,17 +207,14 @@ end
 
 -- AIO
 --
-cdef 'int close(int fd)'
+local on_read, on_write, stop_read, stop_write = ox.on_read, ox.on_write, ox.stop_read, ox.stop_write
+local vla_char = typeof 'char [?]'
+local newbuffer = typeof 'char[8192]'
+
 function ox.close(c)
   C.close(c.fd)
   c.closed=true
 end
-cdef 'int read(int fd, char * buffer, int n)'
-cdef 'int write(int fd, char * buffer, int n)'
-local EINTER = 4
-local vla_char = typeof 'char [?]'
-local newbuffer = ffi.typeof 'char[8192]'
-local EAGAIN = 11
 
 function ox.fill(src, cn)
   if not src.buff then src.buff = newbuffer() end
@@ -190,11 +229,8 @@ function ox.fill(src, cn)
       return cn(src)
     end
   end)
-end; local fill = ox.fill
+end
 
-local CR = string.byte '\r'
-local LF = string.byte '\n'
-local mmin = math.min
 local function _readln(src)
   local bufflimit = src.len - src.h
   local lnlimit = src.lnmax - src.k
@@ -246,31 +282,8 @@ end
 
 -- TRANSPORT
 --
-cdef 'typedef unsigned short int sa_family_t'
-cdef 'typedef unsigned short int sa_family_t'
-cdef 'typedef uint32_t socklen_t'
-cdef 'typedef uint16_t in_port_t'
-
-cdef 'struct sockaddr {sa_family_t sa_family; char sa_data[14];}'
-cdef 'struct in6_addr {unsigned char s6_addr[16];}'
-cdef [[struct sockaddr_in6 {
-  uint16_t sin6_family;
-  uint16_t sin6_port;
-  uint32_t sin6_flowinfo;
-  struct in6_addr sin6_addr;
-  uint32_t sin6_scope_id;
-}]]
-
-cdef 'int socket(int domain, int type, int protocol)'
-cdef 'int inet_pton(int af, const char *src, void *dst)'
-cdef 'int bind(int sockfd, const struct sockaddr *myaddr, socklen_t addrlen)'
 local ptr_sockaddr = typeof 'const struct sockaddr *'
 local struct_sockaddr_in6 = typeof 'struct sockaddr_in6'
-local AF_INET = 2
-local SOCK_STREAM, AF_INET6, SO_REUSEADDR = 1, 10, 2
-local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
-local LOOPBACK = new 'struct in6_addr'
-assert(C.inet_pton(AF_INET6, '::', LOOPBACK)>0, 'Could not cache ip6 loopback')
 local netorder
 if ffi.abi 'be' then
   netorder = function(x) return x end --big endian
@@ -278,13 +291,6 @@ else
   netorder = function(x) return bit.rshift(bit.bswap(x), 16) end
 end
 
-cdef 'int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)'
-cdef [[struct sockaddr_storage {
-  sa_family_t ss_family;
-  unsigned long int __ss_align;
-  char __ss_padding[128 - 2 * sizeof(unsigned long int)];
-}]]
-cdef 'int listen(int fd, int backlog)'
 local function tcp_accept(s)
   while true do
     local fd = C.accept4(s.fd, nil, nil, SOCK_NONBLOCK)
@@ -295,13 +301,10 @@ local function tcp_accept(s)
   end
 end
 
-
 function ox.tcpserv(port, cn)
-  print('tcpserv',port,netorder(port))
-  local ip6addr = ffi.new 'struct sockaddr_in6'
+  local ip6addr = new 'struct sockaddr_in6'
   ip6addr.sin6_family = AF_INET6
   ip6addr.sin6_port = netorder(port)
-  --ip6addr.sin6_flowinfo = 0
   ffi.copy(ip6addr.sin6_addr, LOOPBACK, sizeof(LOOPBACK))
 
   local s = C.socket(AF_INET6, SOCK_STREAM+SOCK_NONBLOCK, 0)
@@ -353,11 +356,6 @@ end
 
 -- PIPE
 --
-cdef 'int pipe(int filedes[2])'
-cdef 'int pipe2(int intfiledes[2], int flags)'
-cdef 'int fcntl(int fd, int cmd, long arg)'
-local F_SETFL = 4
-local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
 function ox.pipe(flag)
   local pfds = ffi.new 'int[2]'
   if flag =='rw' then
@@ -392,6 +390,8 @@ end
 
 -- LOOP
 --
+local pollfds = ffi.typeof 'struct pollfd[?]'
+local bcheck = ox.bcheck
 
 function ox.stop()
   print 'stop'
@@ -403,11 +403,6 @@ function ox.clear()
   contexts = {}
   collectgarbage 'collect'
 end
-
-cdef 'struct pollfd {int fd; short events; short revents;}'
-cdef 'typedef unsigned long nfds_t'
-cdef 'int poll(struct pollfd *fds, nfds_t nfds, int timeout)'
-local pollfds = ffi.typeof 'struct pollfd[?]'
 
 function ox.start(init)
   ox.on = true

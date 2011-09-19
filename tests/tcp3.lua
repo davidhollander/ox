@@ -1,9 +1,9 @@
 print 'this test requires apache bench!'
 
 local ox = require 'ox'
-local PORT = ... or 8093
+local PORT = ... or 8092
 local N = 10000
-local test = 'ab -c 100 -n '..N..' http://localhost:'..PORT..'/'
+local test = 'ab -c 500 -n '..N..' http://localhost:'..PORT..'/'
 local testline = 'GET / HTTP/1.0'
 
 local tc = table.concat
@@ -17,7 +17,7 @@ assert(ox.tcpserv(PORT, function(c)
 end))
 
 local p
-ox.at(ox.time + 2, function()
+ox.at(ox.time + 3, function()
   local results = p:read(480)
   local n = results:match 'Complete requests:%s+(%d+)'
   assert(n, 'Could not parse complete requests from apache bench')

@@ -51,6 +51,7 @@ end
 for i=1,500 do
   local r, w = assert(ox.pipe 'r')
   w:write 'hello'
+  w:close()
   ox.on_read(r, count)
 end
 ox.at(ox.time + 2, function()
