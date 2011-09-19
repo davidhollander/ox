@@ -182,16 +182,49 @@ function ox.fill(src, cn)
   return on_read(src, function()
     local i = C.read(src.fd, src.buff, 8192)
     if i==-1 then
-      if errno() == EAGAIN then print 'eagain' return
+      if errno() == EAGAIN then return
       else return ox.close(src) end
     else
+      src.h = 0
       src.len = i
       return cn(src)
     end
   end)
+end; local fill = ox.fill
+
+local CR = string.byte '\r'
+local LF = string.byte '\n'
+local mmin = math.min
+local function _readln(src)
+  local bufflimit = src.len - src.h
+  local lnlimit = src.lnmax - src.k
+  --local a, b = src.lnbuff + src.k, src.buff + src.h
+
+  for i=0, mmin(lnlimit, bufflimit) do
+    if src.buff[src.h + i] == LF then
+      src.h = src.h + i + 1
+      local j = src.k + i
+      local n = (j > 0 and src.lnbuff[j - 1] == CR and j - 1) or j
+      return src:on_line(ffi.string(src.lnbuff, n)) --?
+    else
+      src.lnbuff[src.k + i] = src.buff[src.h + i]
+    end
+  end
+  if lnlimit<bufflimit then
+    return src:on_line(nil, 'Exceeded max')
+  else
+    c.k = c.k + bufflimit
+    return ox.fill(src, _readln)
+  end
 end
 
-function ox.readln(src, max, cb)
+function ox.readln(src, max, cn)
+  src.lnbuff = vla_char(max)
+  src.on_line = cn
+  src.lnmax = max
+  src.k = 0
+  if src.h then return _readln(src)
+  else return ox.fill(src, _readln) end
 end
 
 function ox.read(src, n, cb)
@@ -239,19 +272,13 @@ cdef 'int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
 cdef [[struct sockaddr_storage {
   sa_family_t ss_family;
   unsigned long int __ss_align;
-  char __ss_padding[128 - 2 * sizeof(unsigned long int)]; /* total length 128 */
+  char __ss_padding[128 - 2 * sizeof(unsigned long int)];
 }]]
 cdef 'int listen(int fd, int backlog)'
 local function tcp_accept(s)
   while true do
-    local ss = ffi.new 'struct sockaddr_storage'
-    local size = ffi.new 'unsigned int[1]'
-    local sa = ffi.cast('struct sockaddr *', ss)
-    local fd = C.accept4(s.fd, sa, size, SOCK_NONBLOCK)
-    if fd==-1 then
-      --print(fd, ffi.errno()==EAGAIN)
-      return
-    end
+    local fd = C.accept4(s.fd, nil, nil, SOCK_NONBLOCK)
+    if fd==-1 then return end
     local c = {fd = fd, events = 0, revents = 0, accept_time=ox.time}
     ti(contexts, c)
     s.on_accept(c)

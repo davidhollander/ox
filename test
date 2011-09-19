@@ -1,8 +1,11 @@
 #!/usr/bin/luajit
 
 local tests = {
-  'tests/ox1.lua',
-  'tests/poll.lua'
+  'tests/fs.lua',
+  'tests/tbl.lua',
+  --'tests/ox1.lua',
+  'tests/poll.lua',
+  'tests/tcp.lua',
 }
 
 for i,fname in ipairs(tests) do
