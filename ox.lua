@@ -198,8 +198,6 @@ local mmin = math.min
 local function _readln(src)
   local bufflimit = src.len - src.h
   local lnlimit = src.lnmax - src.k
-  --local a, b = src.lnbuff + src.k, src.buff + src.h
-
   for i=0, mmin(lnlimit, bufflimit) do
     if src.buff[src.h + i] == LF then
       src.h = src.h + i + 1
@@ -229,7 +227,19 @@ end
 
 function ox.read(src, n, cb)
 end
-function ox.write(des, n, cb)
+
+function ox.write(des, str, cn)
+  local buff = vla_char(#str, str)
+  local n = 0
+  return on_write(des, function()
+    local m = C.write(des.fd, buff+n, #str - n)
+    if m==-1 then return errno()~=EAGAIN and ox.close(des) end
+    n = n + m
+    if n>=#str then
+      stop_write(des)
+      return cn(des)
+    end
+  end)
 end
 function ox.transfer(des, src, n, cb)
 end

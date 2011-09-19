@@ -19,6 +19,7 @@ ox.at(ox.time + 2, function()
   local n = results:match 'Complete requests:%s+(%d+)'
   assert(n, 'Could not parse complete requests from apache bench')
   assert(tonumber(n) == N, 'Complete requests not equal to N')
+  p:close()
   ox.stop()
 end)
 

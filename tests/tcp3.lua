@@ -1,12 +1,19 @@
 print 'this test requires apache bench!'
 
 local ox = require 'ox'
-local PORT = ... or 8090
+local PORT = ... or 8093
 local N = 10000
 local test = 'ab -c 100 -n '..N..' http://localhost:'..PORT..'/'
+local testline = 'GET / HTTP/1.0'
+
+local tc = table.concat
+local function handle(c, line)
+  assert(line==testline)
+  return ox.write(c, tc {'HTTP/1.1 200 OK\r\n\r\n', line, '\r\n'}, ox.close)
+end
 
 assert(ox.tcpserv(PORT, function(c)
-  return ox.fill(c, ox.close)
+  return ox.readln(c, 2048, handle)
 end))
 
 local p
