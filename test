@@ -3,6 +3,7 @@
 local tests = {
   'tests/fs.lua',
   'tests/tbl.lua',
+  'tests/globtrie.lua',
   --'tests/ox1.lua',
   --'tests/poll.lua',
   'tests/tcp.lua',
