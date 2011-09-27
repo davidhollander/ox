@@ -17,17 +17,35 @@ typedef uint32_t socklen_t;
 typedef uint16_t in_port_t;
 typedef unsigned long nfds_t;
 ]]
+
 -- structs
 cdef[[
 struct pollfd {int fd; short events; short revents;};
 struct sockaddr {sa_family_t sa_family; char sa_data[14];};
 struct in6_addr {unsigned char s6_addr[16];};
+struct in_addr {uint32_t s_addr;};
+struct sockaddr_in {
+  sa_family_t sin_family;
+  uint16_t sin_port;
+  struct in_addr sin_addr;
+  unsigned char  sin_zero[8];
+};
 struct sockaddr_in6 {
   uint16_t sin6_family;
   uint16_t sin6_port;
   uint32_t sin6_flowinfo;
   struct in6_addr sin6_addr;
   uint32_t sin6_scope_id;
+};
+struct addrinfo{
+  int ai_flags;
+  int ai_family;
+  int ai_socktype;
+  int ai_protocol;
+  size_t ai_addrlen;
+  struct sockaddr *ai_addr;
+  char *ai_canonname;
+  struct addrinfo *ai_next;
 };
 ]]
 -- funcs
@@ -49,13 +67,18 @@ int pipe(int filedes[2]);
 int pipe2(int intfiledes[2], int flags);
 int fcntl(int fd, int cmd, long arg);
 int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints,
+  struct addrinfo **res);
+void freeaddrinfo(struct addrinfo *res);
 ]]
 -- constants
 local F_SETFL = 4
-local SOCK_STREAM, AF_INET6, SO_REUSEADDR = 1, 10, 2
+local AF_INET, AF_INET6 = 2, 10
+local SOCK_STREAM, SO_REUSEADDR = 1, 2
 local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
 local EV_IN, EV_OUT = 1, 4
-local EINTER, EAGAIN = 4, 11
+local EINTER, EAGAIN, EINPROGRESS = 4, 11, 115
 local LOOPBACK = new 'struct in6_addr'
 assert(C.inet_pton(AF_INET6, '::', LOOPBACK)>0, 'Could not cache ip6 loopback')
 
@@ -247,7 +270,7 @@ local function _readln(src)
   if lnlimit<bufflimit then
     return src:on_line(nil, 'Exceeded max')
   else
-    c.k = c.k + bufflimit
+    src.k = src.k + bufflimit
     return ox.fill(src, _readln)
   end
 end
@@ -305,6 +328,8 @@ function ox.tcpserv(port, cn)
   local ip6addr = new 'struct sockaddr_in6'
   ip6addr.sin6_family = AF_INET6
   ip6addr.sin6_port = netorder(port)
+  ip6addr.sin6_scope_id = 0
+  --ip6addr.sin6_addr = LOOPBACK
   ffi.copy(ip6addr.sin6_addr, LOOPBACK, sizeof(LOOPBACK))
 
   local s = C.socket(AF_INET6, SOCK_STREAM+SOCK_NONBLOCK, 0)
@@ -322,7 +347,87 @@ function ox.tcpserv(port, cn)
   return true
 end
 
-function ox.tcpconn(host, port, cb)
+-- blocking DNS lookup
+function ox.b_resolv(host)
+  local hints = new 'struct addrinfo'
+  local results = new 'struct addrinfo * [1]'
+  hints.ai_family = 0
+  hints.ai_socktype = SOCK_STREAM
+  hints.ai_protocol = 0
+
+  if C.getaddrinfo(host, port, hints, results)~=0 then return nil, 'could not resolve' end
+  print('res', results, results[0], results[0][0], results[0][0].ai_addr)
+  local r = results[0][0]
+  repeat
+    --print('r',r,r.ai_addr,r.ai_addr[0], r.ai_addr[0].sa_family)
+    if r.ai_family == AF_INET then
+      local sa = ffi.cast('struct sockaddr_in *', r.ai_addr)
+      print('AF_INET', sa.sin_addr.s_addr, sa.sin_port)
+    elseif r.ai_family == AF_INET6 then
+      local sa = ffi.cast('struct sockaddr_in6 *', r.ai_addr)
+      print('AF_INET6', sa.sin6_addr.s_addr, sa.sin6_port)
+    end
+    r = r.ai_next
+  until r==nil
+  C.freeaddrinfo(results[0])
+end
+
+-- todo: getaddrinfo in split, serialization format
+function ox.resolv(host, cb)
+  local r, w = ox.pipe 'r'
+  ox.split(1, function()
+    w:write 'hello'
+    w:close()
+  end)
+  ox.read(r, 8192, function(c, chunk)
+    print(chunk)
+    ox.close(c)
+  end)
+end
+
+
+function ox.tcpconn(ip, port, cb)
+  -- convert ip6 or ip4 to address
+  local version, addr, sockaddr, fd
+  if ip:match ':' then 
+    addr = new 'struct in6_addr'
+    version = AF_INET6
+    if C.inet_pton(AF_INET6, ip, addr)~=1 then return nil, 'Could not parse ip6' end
+    print('ip6conn', version, addr.s6_addr)
+  elseif ip:match '^%d+.%d+' then
+    addr = new 'struct in_addr'
+    version = AF_INET
+    if C.inet_pton(AF_INET, ip, addr)~=1 then return nil, 'Could not parse ip4' end
+    print('ip4conn', version, addr.s_addr)
+  else return nil, 'First argument must be an ip address' end
+  
+  -- fill socket address
+  if version == AF_INET6 then
+    sockaddr = new 'struct sockaddr_in6'
+    --sockaddr.sin6_len = sizeof(sockaddr)
+    sockaddr.sin6_family = AF_INET6
+    sockaddr.sin6_port = netorder(port)
+    sockaddr.sin6_flowinfo = 0
+    sockaddr.sin6_scope_id = 0
+    --sockaddr.sin6_addr = addr
+    ffi.copy(sockaddr.sin6_addr, addr, sizeof(addr))
+  else
+    sockaddr = new 'struct sockaddr_in' 
+    sockaddr.sin_family = AF_INET
+    sockaddr.sin_port = netorder(port)
+    --sockaddr.sin_addr = addr
+    ffi.copy(sockaddr.sin_addr, addr, sizeof(addr))
+  end
+  local casted = cast('struct sockaddr *', sockaddr)
+
+  -- create socket and connect
+  fd = C.socket(version, SOCK_STREAM + SOCK_NONBLOCK, 0)
+  if fd==-1 then return nil, 'Could not create socket' end
+  if C.connect(fd, casted, sizeof(sockaddr))==-1 then print(version, errno())return nil, 'Could not connect' end
+  --if C.fcntl(fd, F_SETFL, O_NONBLOCK)==-1 then return nil, 'Could not set nonblock' end
+  local c = {fd = fd, events=0, revents = 0}
+  ti(contexts, c)
+  return cb(c)
 end
 function ox.unixserv(file, cb)
 end
