@@ -1,13 +1,30 @@
---lib
---Sleep, compress, uncompress based off of FFI tutorial by Mike Pall
---http://luajit.org/ext_ffi_tutorial.html
+-- ox.lib
+-- Copyright 2011 by David Hollander
+-- Distributed under the MIT License
+
+
 local ffi = require 'ffi'
 local cdef = ffi.cdef
 local ti, tc = table.insert, table.concat
-
 local lib = {}
-cdef 'void Sleep(int ms)'
-cdef 'int poll(struct pollfd *fds, unsigned long nfds, int timeout)'
+
+-- FFI
+--
+-- 'sleep', 'compress', 'uncompress' by Mike Pall: http://luajit.org/ext_ffi_tutorial.html
+
+cdef[[
+void Sleep(int ms);
+int poll(struct pollfd *fds, unsigned long nfds, int timeout);
+unsigned long compressBound(unsigned long sourceLen);
+int compress2(uint8_t *dest, unsigned long *destLen,
+        const uint8_t *source, unsigned long sourceLen, int level);
+int uncompress(uint8_t *dest, unsigned long *destLen,
+         const uint8_t *source, unsigned long sourceLen);
+]]
+local zlib = ffi.load(ffi.os == "Windows" and "zlib1" or "z")
+local arr_uint8 = ffi.typeof 'uint8_t[?]'
+local ptr_ulong = ffi.typeof 'unsigned long[1]'
+
 if ffi.os == "Windows" then
   function lib.sleep(s)
     ffi.C.Sleep(s*1000)
@@ -17,6 +34,26 @@ else
     ffi.C.poll(nil, 0, s*1000)
   end
 end
+
+function lib.compress(txt)
+  local n = zlib.compressBound(#txt)
+  local buf = arr_uint8(n)
+  local buflen = ptr_ulong(n)
+  local res = zlib.compress2(buf, buflen, txt, #txt, 9)
+  assert(res == 0)
+  return ffi.string(buf, buflen[0])
+end
+
+function lib.uncompress(comp, n)
+  local buf = ffi.new("uint8_t[?]", n)
+  local buflen = ffi.new("unsigned long[1]", n)
+  local res = zlib.uncompress(buf, buflen, comp, #comp)
+  assert(res == 0)
+  return ffi.string(buf, buflen[0])
+end
+
+-- Lua only
+--
 
 function lib.bench(n,fn,...)
   local c = os.clock()
@@ -83,34 +120,50 @@ function lib.globtrie_get(R, str)
   elseif R.catch then return R.catch, str end
 end
 
-
-
-cdef [[
-unsigned long compressBound(unsigned long sourceLen);
-int compress2(uint8_t *dest, unsigned long *destLen,
-        const uint8_t *source, unsigned long sourceLen, int level);
-int uncompress(uint8_t *dest, unsigned long *destLen,
-         const uint8_t *source, unsigned long sourceLen);
-]]
-local zlib = ffi.load(ffi.os == "Windows" and "zlib1" or "z")
-local arr_uint8 = ffi.typeof 'uint8_t[?]'
-local ptr_ulong = ffi.typeof 'unsigned long[1]'
-
-function lib.compress(txt)
-  local n = zlib.compressBound(#txt)
-  local buf = arr_uint8(n)
-  local buflen = ptr_ulong(n)
-  local res = zlib.compress2(buf, buflen, txt, #txt, 9)
-  assert(res == 0)
-  return ffi.string(buf, buflen[0])
+-- pools requests for update(cb) and caches response for [timeout] duration
+-- return lambda(cb)
+function lib.cache0(update, timeout)
+  local value
+  local time=0
+  local waiting=false
+  return function(cb)
+    if not cb then time=0
+    elseif time>os.time() then return cb(value)
+    elseif waiting then ti(waiting, cb)
+    else
+      waiting={cb}
+      update(function(val)
+        value=val
+        time=os.time()+timeout
+        local waiting_old=waiting
+        waiting=false
+        for i,fn in ipairs(waiting_old) do fn(val) end
+      end)
+    end
+  end
 end
 
-function lib.uncompress(comp, n)
-  local buf = ffi.new("uint8_t[?]", n)
-  local buflen = ffi.new("unsigned long[1]", n)
-  local res = zlib.uncompress(buf, buflen, comp, #comp)
-  assert(res == 0)
-  return ffi.string(buf, buflen[0])
+-- pools requests for update(key, cb) and caches response for [timeout] duration
+-- return lambda(key, cb)
+function lib.cache1(update, timeout)
+  local values={}
+  local times={}
+  local waiting={}
+  return function(key, cb)
+    if not cb then times[key]=nil; values[key]=nil
+    elseif times[key] and times[key]>os.time() then cb(values[key])
+    elseif waiting[key] then ti(waiting[key], cb)
+    else
+      waiting[key]={cb}
+      update(key, function(val)
+        values[key]=val
+        times[key]=os.time()+timeout
+        local waiting_old=waiting[key]
+        waiting[key]=nil
+        for i,fn in ipairs(waiting_old) do fn(val) end
+      end)
+    end
+  end
 end
 
 return lib

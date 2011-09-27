@@ -348,74 +348,88 @@ function ox.tcpserv(port, cn)
 end
 
 -- blocking DNS lookup
-function ox.b_resolv(host)
+function ox.b_resolv(file, host)
   local hints = new 'struct addrinfo'
   local results = new 'struct addrinfo * [1]'
   hints.ai_family = 0
   hints.ai_socktype = SOCK_STREAM
   hints.ai_protocol = 0
-
   if C.getaddrinfo(host, port, hints, results)~=0 then return nil, 'could not resolve' end
-  print('res', results, results[0], results[0][0], results[0][0].ai_addr)
   local r = results[0][0]
   repeat
-    --print('r',r,r.ai_addr,r.ai_addr[0], r.ai_addr[0].sa_family)
     if r.ai_family == AF_INET then
       local sa = ffi.cast('struct sockaddr_in *', r.ai_addr)
-      print('AF_INET', sa.sin_addr.s_addr, sa.sin_port)
+      file:write(sa.sin_addr.s_addr, '\n')
     elseif r.ai_family == AF_INET6 then
       local sa = ffi.cast('struct sockaddr_in6 *', r.ai_addr)
-      print('AF_INET6', sa.sin6_addr.s_addr, sa.sin6_port)
+      file:write(sa.sin_addr.s6_addr, '\n')
     end
     r = r.ai_next
   until r==nil
   C.freeaddrinfo(results[0])
 end
 
--- todo: getaddrinfo in split, serialization format
-function ox.resolv(host, cb)
+function ox.resolv(host, port, cb)
   local r, w = ox.pipe 'r'
   ox.split(1, function()
-    w:write 'hello'
+    ox.b_resolv(w, host)
     w:close()
   end)
-  ox.read(r, 8192, function(c, chunk)
-    print(chunk)
-    ox.close(c)
+  ox.readln(r, 128, function(c, ip)
+    if not ip then return cb(nil) end
+    local x, err = ox.tcpconn(ip, port, cb)
+    if err then return ox.readln(ip, port, cb) end
   end)
 end
 
+function ox.fromfork(fn, cb, expire)
+  local r, w = ox.pipe 'r'
+  ox.split(1, fn)
+  return cb(r
+end
 
-function ox.tcpconn(ip, port, cb)
+-- asynchronous DNS lookup pooler and cache
+local host_cache = lib.cache1(function(host, cb)
+  call_fork(function()
+    local x = nixio.getaddrinfo(host, 'inet', port)
+    return x and x[1].address or nil
+  end, cb)
+end, 1000)
+
+function ox.tcpconn(address, port, cb)
   -- convert ip6 or ip4 to address
   local version, addr, sockaddr, fd
-  if ip:match ':' then 
+  if address:match ':' then 
     addr = new 'struct in6_addr'
     version = AF_INET6
     if C.inet_pton(AF_INET6, ip, addr)~=1 then return nil, 'Could not parse ip6' end
     print('ip6conn', version, addr.s6_addr)
-  elseif ip:match '^%d+.%d+' then
+  elseif address:match '^[%d%.]+$' then
     addr = new 'struct in_addr'
     version = AF_INET
     if C.inet_pton(AF_INET, ip, addr)~=1 then return nil, 'Could not parse ip4' end
     print('ip4conn', version, addr.s_addr)
-  else return nil, 'First argument must be an ip address' end
+  else
+    return host_cache(address, function(pipe)
+      ox.readln(pipe, 1024, function(pipe, ip)
+        local x, err = ox.tcpconn(ip, port, cb)
+        if err then return 
+      end)
+    end)
+  end
   
   -- fill socket address
   if version == AF_INET6 then
     sockaddr = new 'struct sockaddr_in6'
-    --sockaddr.sin6_len = sizeof(sockaddr)
     sockaddr.sin6_family = AF_INET6
     sockaddr.sin6_port = netorder(port)
     sockaddr.sin6_flowinfo = 0
     sockaddr.sin6_scope_id = 0
-    --sockaddr.sin6_addr = addr
     ffi.copy(sockaddr.sin6_addr, addr, sizeof(addr))
   else
     sockaddr = new 'struct sockaddr_in' 
     sockaddr.sin_family = AF_INET
     sockaddr.sin_port = netorder(port)
-    --sockaddr.sin_addr = addr
     ffi.copy(sockaddr.sin_addr, addr, sizeof(addr))
   end
   local casted = cast('struct sockaddr *', sockaddr)
@@ -461,36 +475,74 @@ end
 
 -- PIPE
 --
-function ox.pipe(flag)
+function ox.pipe(flag, expire)
   local pfds = ffi.new 'int[2]'
+  local r, w
   if flag =='rw' then
     if C.pipe2(pfds, O_NONBLOCK)==-1 then return nil, 'Could not create nonblocking pipe'..errno()
     else
-      local r = {fd = tonumber(pfds[0]), events = 0, revents = 0}
-      local w = {fd = tonumber(pfds[1]), events = 0, revents = 0}
+      r = {fd = tonumber(pfds[0]), events = 0, revents = 0, expire=expire}
+      w = {fd = tonumber(pfds[1]), events = 0, revents = 0, expire=expire}
       ti(contexts, r)
       ti(contexts, w)
-      return r, w
     end
   elseif C.pipe(pfds)==-1 then return nil, 'Could not create pipe'..errno()
   elseif flag=='r' then
     if C.fcntl(pfds[0], F_SETFL, O_NONBLOCK)==-1 then
       return nil, 'Could not set only read end nonblocking'..errno()
     else
-      local r = {fd = tonumber(pfds[0]), events = 0, revents = 0}
+      r = {fd = tonumber(pfds[0]), events = 0, revents = 0, expire = expire}
       ti(contexts, r)
-      return r, {fd = tonumber(pfds[1]), write = b_write, close = ox.close}
+      w = {fd = tonumber(pfds[1]), write = b_write, close = ox.close}
     end
   elseif flag=='w' then
     if C.fcntl(pfds[1], F_SETFL, O_NONBLOCK)==-1 then
       return nil, 'Could not set only write end nonblocking'..errno()
     else
-      local w = {fd = tonumber(pfds[1]), events = 0, revents = 0}
+      w = {fd = tonumber(pfds[1]), events = 0, revents = 0, expire=expire}
       ti(contexts, w)
-      return {fd = tonumber(pfds[0]), read = b_read, close = ox.close}, w
+      r = {fd = tonumber(pfds[0]), read = b_read, close = ox.close}
     end
   end
+  return r, w
 end
+
+function ox.fromfork(fn, expire, cb)
+  local pfds = ffi.new 'int[2]'
+  if C.pipe(pfds)==-1 then return nil, 'Could not create pipe'..errno()
+  elseif C.fcntl(pfds[0], F_SETFL, O_NONBLOCK)==-1 then return nil, 'Could not set read end nonblocking' end
+
+  local pid = C.fork()
+  if pid==-1 then return nil, 'Could not fork'
+  elseif pid==0 then
+    local w = {fd = tonumber(pfds[1]), write = b_write, close = ox.close}
+    cb(w)
+    os.exit()
+  else
+    local r = {fd = tonumber(pfds[0]), pid=pid, events = 0, revents = 0, expire = expire, on_read = cb}
+    ti(contexts, r)
+    return cb(r)
+  end
+end
+
+function ox.tofork(fn, expire, cb)
+  local pfds = ffi.new 'int[2]'
+  if C.pipe(pfds)==-1 then return nil, 'Could not create pipe'..errno()
+  elseif C.fcntl(pfds[1], F_SETFL, O_NONBLOCK)==-1 then return nil, 'Could not set write end nonblocking' end
+
+  local pid = C.fork()
+  if pid==-1 then return nil, 'Could not fork'
+  elseif pid==0 then
+    local r = {fd = tonumber(pfds[0]), read = b_read, close = ox.close}
+    cb(r)
+    os.exit()
+  else
+    local w = {fd = tonumber(pfds[1]), pid=pid, events = 0, revents = 0, expire = expire}
+    ti(contexts, w)
+    return cb(w)
+  end
+end
+
 
 
 -- LOOP
