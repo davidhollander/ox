@@ -22,4 +22,8 @@ for k,v in pairs(t) do
   end
 end
 assert(n==4)
+
+assert(#{tbl.unpackn({},{},{})} == 0)
+assert(#{tbl.unpackn({1,2},{3},{4,5,6,7})} == 7)
+
 print 'pass'

@@ -66,6 +66,18 @@ end
 
 local MARK = ('*'):byte()
 
+function lib.globtrie_nest(r, ptrn)
+  if ptrn=='*' then R.catch = n return end
+  local t = R
+  for i=1,#ptrn do
+    local b=ptrn:byte(i)
+    t[b] = t[b] or {}
+    t = t[b]
+  end
+  t.exit = t.exit or {}
+  return t.exit
+end
+
 function lib.globtrie_put(R, ptrn, n)
   if ptrn=='*' then R.catch = n return end
   local t = R
@@ -116,8 +128,8 @@ function lib.globtrie_get(R, str)
   -- end any suffix capturs
   if capture then ti(captures, str:sub(capture)) end
   -- did string end on an exit?
-  if t.exit then return t.exit, unpack(captures)
-  elseif R.catch then return R.catch, str end
+  if t.exit then return t.exit, captures
+  elseif R.catch then return R.catch, {str} end
 end
 
 -- pools requests for update(cb) and caches response for [timeout] duration

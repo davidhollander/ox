@@ -13,10 +13,10 @@ put(R, 'foo.org', 2)
 put(R, '*.com',   3)
 put(R, 'foo.*',   4)
 
-x = {get(R, 'foo.net')}
-assert(#x==1 and x[1]==1)
-x = {get(R, 'foo.org')}
-assert(#x==1 and x[1]==2)
+x, cap = get(R, 'foo.net')
+assert(x==1 and not)
+x, cap = get(R, 'foo.org')
+assert(x==1 and x[1]==2)
 x = {get(R, 'foo.com')}
 assert(#x==2 and x[1]==4 and x[2]=='com')
 x = {get(R, 'foo.co')}

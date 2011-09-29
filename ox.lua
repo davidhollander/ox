@@ -382,9 +382,8 @@ local lib = require 'ox.lib'
 
 -- asynchronous DNS lookup pooler and cache
 local host_cache = lib.cache1(function(host, cb)
-  print('cache update', host)
   local r = ox.fromfork(function(w) return ox.b_resolv(w, host) end, 30)
-  return ox.readln(r, 64, function(c, ip) ox.close(r); return cb(ip) end)
+  return ox.readln(r, 66, function(c, ip) ox.close(r); return cb(ip) end)
 end, 3600)
 
 function ox.tcpconn(address, port, cb)
@@ -394,12 +393,10 @@ function ox.tcpconn(address, port, cb)
     addr = new 'struct in6_addr'
     version = AF_INET6
     if C.inet_pton(AF_INET6, address, addr)~=1 then return nil, 'Could not parse ip6' end
-    print('ip6conn', version, addr.s6_addr)
   elseif address:match '^[%d%.]+$' then
     addr = new 'struct in_addr'
     version = AF_INET
     if C.inet_pton(AF_INET, address, addr)~=1 then return nil, 'Could not parse ip4' end
-    print('ip4conn', version, addr.s_addr)
   else
     return host_cache(address, function(ip) return ox.tcpconn(ip, port, cb) end)
   end

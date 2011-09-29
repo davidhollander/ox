@@ -60,4 +60,14 @@ function tbl.dump(i)
   else return nil, 'Unsupported type' end
 end
 
+function tbl.unpackn(...)
+  local out = {}
+  for i,t in ipairs{...} do
+    for i,v in ipairs(t) do
+      ti(out, v)
+    end
+  end
+  return unpack(out)
+end
+
 return tbl
