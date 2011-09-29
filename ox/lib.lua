@@ -66,8 +66,8 @@ end
 
 local MARK = ('*'):byte()
 
-function lib.globtrie_nest(r, ptrn)
-  if ptrn=='*' then R.catch = n return end
+function lib.globtrie_nest(R, ptrn)
+  if ptrn=='*' then R.catch = R.catch or {} return R.catch end
   local t = R
   for i=1,#ptrn do
     local b=ptrn:byte(i)
@@ -119,7 +119,7 @@ function lib.globtrie_get(R, str)
         t, i = unpack(forks[#forks])
         capture = i
         forks[#forks] = nil
-      elseif R.catch then return R.catch, str --can't backtrack, is there a catchall?
+      elseif R.catch then return R.catch, {str} --can't backtrack, is there a catchall?
       else return false end --no luck
     end
   end

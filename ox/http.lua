@@ -2,9 +2,11 @@
 -- Copyright 2011 by David Hollander
 -- MIT License
 
+local ox = require 'ox'
 local lib = require 'ox.lib'
+local tbl = require 'ox.tbl'
 local glt_put, glt_nest, glt_get = lib.globtrie_put, lib.globtrie_nest, lib.globtrie_get
-
+local ti, tc = table.insert, table.concat
 local http = {
   head_line_max = 2048,
   head_max = 8192,
@@ -65,6 +67,29 @@ local RES_STATUS = {
 -- RENDERING
 --
 
+function http.stream(c)
+  local chunk = c.body_source()
+  if not chunk then return ox.write(c, '\r\n', ox.close)
+  else return ox.write(c, chunk, http.stream) end
+end
+
+function http.close(c)
+  return ox.write(c, '\r\n', ox.close)
+end
+
+function http.writehead(c, cb)
+  local s = RES_STATUS[status]
+  if not s then assert(s, 'Bad status: '..status) end
+  local t = {s}
+  for k,v in pairs(c.res.head or {}) do
+    ti(t, k); ti(t, ':  '); ti(t, v); ti(t, '\r\n')
+  end
+  for k,v in pairs(c.res.jar or {}) do
+    ti(t, 'Set-Cookie: ') ti(t, k); ti(t, '='); ti(t, v); ti(t, '\r\n')
+  end
+  return ox.write(c, tc(t), cb)
+end
+
 function http.nohead(c, status, body)
   return ox.write(c, tc{RES_STATUS[status],'\r\n',body or '','\r\n'}, ox.close)
 end
@@ -80,17 +105,24 @@ function http.reply(c, status, body)
     ti(t, 'Set-Cookie: ') ti(t, k); ti(t, '='); ti(t, v); ti(t, '\r\n')
   end
   if type(body)=='function' then
+    c.body_source=body
     if not c.res.head['Content-Length'] then
       ti(t, 'Transfer-Encoding: chunked\r\n')
-      body=chunkwrap(body)
     end
     ti(t, '\r\n')
-    return ox.write(c, tc(t) body, '\r\n')
+    return ox.write(c, tc(t), ox.stream)
   elseif type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
     return ox.write(c, tc(t), ox.close)
   else return ox.write(c, tc(t), ox.close) end
 end
+
+function http.transfer(c, status, src)
+end
+
+function http.stream(c, status, src)
+end
+
 
 -- ROUTES
 --
@@ -107,16 +139,21 @@ function http.route(host)
 end
 
 function http.routereq(c)
-  local methods, a = glt_get(hosts, c.req.head.Host or '')
+  local methods, cap1 = glt_get(hosts, c.req.head.Host or '')
   if not methods then return http.nohead(c, 404, 'Host not found') end
-  local paths, b = glt_get(methods, c.req.method)
+
+  local paths, cap2 = glt_get(methods, c.req.method)
   if not paths then return http.nohead(c, 405, 'Method not supported') end
-  local cb, c = glt_get(paths, c.req.path)
+
+  local cb, cap3 = glt_get(paths, c.req.path)
   if not cb then return http.nohead(c, 404, 'Not Found') end
-  local ok, err = pcall(cb, tbl.unpackn(a, b, c))
+
+  c.res = {jar={}, head={}}
+  local ok, err = pcall(cb, c, tbl.unpackn(cap1, cap2, cap3))
   if err then return http.nohead(c, 500, err) end
 end
 
+function http.accept(c) return http.readreq(c, http.routereq) end
 
 -- BODY
 --
@@ -140,11 +177,6 @@ local function readbody_chunklen(c, len)
   end
 end
 
-local function readbody_disposition(c)
-
-end
-
-
 local function readbody_part(c, line)
   if line==c.bdr then return ox.readln(c, 1024, readbody_parthead)
   else
@@ -153,7 +185,7 @@ local function readbody_part(c, line)
   end
 end
 
-local function readbody_parthead(c, line
+local function readbody_parthead(c, line)
   if line=='' then ox.readln(c, c.body_max, readbody_part) end
   local key, val = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
   if key then c.part[key] = val end
@@ -253,3 +285,5 @@ function http.readres(c, cn)
   c.res = {head={},jar={}}
   return ox.readln(c, 2048, readres_status)
 end
+
+return http
