@@ -5,6 +5,7 @@
 local ox = require 'ox'
 local lib = require 'ox.lib'
 local tbl = require 'ox.tbl'
+local mime_types = require 'ox.mime'
 local glt_put, glt_nest, glt_get = lib.globtrie_put, lib.globtrie_nest, lib.globtrie_get
 local ti, tc = table.insert, table.concat
 local http = {
@@ -12,6 +13,16 @@ local http = {
   head_max = 8192,
 }
 local hosts = {}
+
+-- FFI
+--
+local zlib = ffi.load(ffi.os == "Windows" and "zlib1" or "z")
+cdef[[int compress2(uint8_t *dest, unsigned long *destLen,
+        const uint8_t *source, unsigned long sourceLen, int level);
+int uncompress(uint8_t *dest, unsigned long *destLen,
+         const uint8_t *source, unsigned long sourceLen);
+
+]]
 
 -- CONSTANTS
 --
@@ -66,6 +77,9 @@ local RES_STATUS = {
 
 -- RENDERING
 --
+
+function http.writechunk(c) end
+function http.writechunk_gzip(c) end
 
 function http.stream(c)
   local chunk = c.body_source()
@@ -122,7 +136,6 @@ end
 
 function http.stream(c, status, src)
 end
-
 
 -- ROUTES
 --
@@ -256,6 +269,25 @@ function http.readreq(c, cb)
   return ox.readln(c, 2048, readreq_status)
 end
 
+function http.folder(dir)
+  local dir=dir:match('^(.+)/?$')
+  return function(c, path)
+    local rh=c.res.head
+    local f = not path:match('%.%.') and ox.open(dir..'/'..path)
+    if not f then return http.nohead(c, 404, 'Invalid path') end
+    local ext = path:match('%.(%w+)$')
+    local mime = mime_types[ext] or 'application/octet-stream'
+    rh['Content-Type'] = mime
+    local stats = f:stat()
+    rh['Last-Modified']=http.datetime(stats.mtime)
+    rh['Content-Length']= stats.size
+    c:reply(200, source_file(f))
+  end
+end
+
+
+
+
 -- RESPONSE
 --
 local function readres_head(c, line)
@@ -285,5 +317,7 @@ function http.readres(c, cn)
   c.res = {head={},jar={}}
   return ox.readln(c, 2048, readres_status)
 end
+
+
 
 return http

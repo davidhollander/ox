@@ -55,6 +55,11 @@ end
 -- Lua only
 --
 
+-- format suitable for use in HTTP headers
+function lib.datetime(utcseconds)
+  return os.date('!%a, %d %b %Y %H:%M:%S %Z', utcseconds)
+end
+
 function lib.bench(n,fn,...)
   local c = os.clock()
   for i=1,n do
