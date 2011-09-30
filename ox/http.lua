@@ -5,7 +5,7 @@
 local ox = require 'ox'
 local lib = require 'ox.lib'
 local tbl = require 'ox.tbl'
-local mime_types = require 'ox.mime'
+--local mime_types = require 'ox.mime'
 local glt_put, glt_nest, glt_get = lib.globtrie_put, lib.globtrie_nest, lib.globtrie_get
 local ti, tc = table.insert, table.concat
 local http = {
@@ -16,6 +16,8 @@ local hosts = {}
 
 -- FFI
 --
+local ffi = require 'ffi'
+local C, cdef = ffi.C, ffi.cdef
 local zlib = ffi.load(ffi.os == "Windows" and "zlib1" or "z")
 cdef[[int compress2(uint8_t *dest, unsigned long *destLen,
         const uint8_t *source, unsigned long sourceLen, int level);
