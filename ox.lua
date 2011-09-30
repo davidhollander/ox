@@ -250,6 +250,7 @@ function ox.fill(src, cn)
     else
       src.h = 0
       src.len = i
+      stop_read(src)
       return cn(src)
     end
   end)
@@ -289,7 +290,7 @@ function ox.read(src, n, cb)
 end
 
 function ox.write(des, str, cn)
-  local buff = vla_char(#str, str)
+  local buff = vla_char(#str+1, str)
   local n = 0
   return on_write(des, function()
     local m = C.write(des.fd, buff+n, #str - n)

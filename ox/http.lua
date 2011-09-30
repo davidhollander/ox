@@ -271,6 +271,16 @@ function http.readreq(c, cb)
   return ox.readln(c, 2048, readreq_status)
 end
 
+--[[
+function http.readreq2(c, cb)
+  return ox.scan(c, 8, ' ', function(c, method)
+    if methods[method] then end
+  end)
+end]]
+
+
+--
+--
 function http.folder(dir)
   local dir=dir:match('^(.+)/?$')
   return function(c, path)
