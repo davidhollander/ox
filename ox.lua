@@ -239,51 +239,25 @@ function ox.close(c)
   C.close(c.fd)
   c.closed=true
 end
-
-function ox.fill(src, cn)
-  if not src.buff then src.buff = newbuffer() end
-  return on_read(src, function()
-    local i = C.read(src.fd, src.buff, 8192)
-    if i==-1 then
-      if errno() == EAGAIN then return
-      else return ox.close(src) end
-    else
-      src.h = 0
-      src.len = i
-      stop_read(src)
-      return cn(src)
-    end
+local streambuff = ffi.new 'char[8192]'
+function ox.readln(c, max, cb)
+  if c.buffer then
+    local h = c.buffer:find('\n', c.init, true)
+    if h and h<max then
+      local line = c.buffer:byte(h-1)==CR and c.buffer:sub(1, h-2) or c.buffer:sub(1, h-1)
+      c.buffer = h==#c.buffer and nil or c.buffer:sub(h+1)
+      c.init = 1
+      stop_read(c)
+      return cb(c, line)
+    elseif #c.buffer>max then return cb(c, nil)
+    else c.init = #c.buffer end
+  else c.buffer = '' end
+  return ox.on_read(c, function(c)
+    local n = C.read(c.fd, streambuff, 8192)
+    if n==-1 then return errno()~=EAGAIN and ox.close(c) end
+    c.buffer = c.buffer..ffi.string(streambuff, n)
+    return ox.readln(c, max, cb)
   end)
-end
-
-local function _readln(src)
-  local bufflimit = src.len - src.h
-  local lnlimit = src.lnmax - src.k
-  for i=0, mmin(lnlimit, bufflimit) do
-    if src.buff[src.h + i] == LF then
-      src.h = src.h + i + 1
-      local j = src.k + i
-      local n = (j > 0 and src.lnbuff[j - 1] == CR and j - 1) or j
-      return src:on_line(ffi.string(src.lnbuff, n)) --?
-    else
-      src.lnbuff[src.k + i] = src.buff[src.h + i]
-    end
-  end
-  if lnlimit<bufflimit then
-    return src:on_line(nil, 'Exceeded max')
-  else
-    src.k = src.k + bufflimit
-    return ox.fill(src, _readln)
-  end
-end
-
-function ox.readln(src, max, cn)
-  src.lnbuff = vla_char(max)
-  src.on_line = cn
-  src.lnmax = max
-  src.k = 0
-  if src.h then return _readln(src)
-  else return ox.fill(src, _readln) end
 end
 
 function ox.read(src, n, cb)

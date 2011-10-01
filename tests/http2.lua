@@ -1,6 +1,6 @@
 local ox = require 'ox'
 local http = require 'ox.http'
-local PORT = 9090
+local PORT = 8091
 
 
 print('1 readln, no parsing', PORT)
@@ -11,7 +11,7 @@ print(ox.tcpserv(PORT, function(c)
 end))
 
 print('full parsing', PORT+1)
-print(ox.tcpserv(PORT+2, function(c)
+print(ox.tcpserv(PORT+1, function(c)
   return http.readreq(c, function(c)
     c.res = {jar={},head={}}
     return http.reply(c, 200, 'Hello World')
@@ -21,7 +21,7 @@ end))
 
 print('fill parsing + routing', PORT+2)
 http.route '*' '*' '*' (function(c)
-  return c:reply(200, 'Hello World')
+  return http.reply(c, 200, 'Hello World')
 end)
 
 print(ox.tcpserv(PORT+2, http.accept)) 
