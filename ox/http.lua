@@ -240,7 +240,7 @@ end
 function http.transferbody(c, max, maxfiles, cb)
 end
 
--- REQUEST
+-- SERVER
 --
 
 local function readreq_head(c, line)
@@ -271,14 +271,6 @@ function http.readreq(c, cb)
   return ox.readln(c, 2048, readreq_status)
 end
 
---[[
-function http.readreq2(c, cb)
-  return ox.scan(c, 8, ' ', function(c, method)
-    if methods[method] then end
-  end)
-end]]
-
-
 --
 --
 function http.folder(dir)
@@ -300,7 +292,7 @@ end
 
 
 
--- RESPONSE
+-- CLIENT
 --
 local function readres_head(c, line)
   if not line then return c:on_response(false)
@@ -330,6 +322,43 @@ function http.readres(c, cn)
   return ox.readln(c, 2048, readres_status)
 end
 
+function http.writereq(c, cb)
+  local req = c.req
+  local t={req.method or 'GET',' ',req.path or '/'}
+  if req.qstr then ti(t,'?'); ti(t, qs_encode(req.qstr)) end
+  ti(t, " HTTP/1.1\r\n")
+  for k, v in pairs(req.head or {}) do
+    ti(t, k); ti(t, ': '); ti(t, v); ti(t,'\r\n')
+  end
+  if req.jar then 
+    local cookies={}
+    ti(t, 'Cookie: ')
+    for k, v in pairs(req.jar) do
+      ti(cookies, tc{k,'=',v})
+    end
+    ti(t, tc(cookies,';')); ti(t, '\r\n')
+  end
+  --[[if type(req.body)=='function' then
+    if not req.head['Content-Length'] then
+      ti(t, 'Transfer-Encoding: chunked\r\n\r\n')
+      body=chunkwrap(body)
+    end
+    return ox.write(c, tc(t), body, '\r\n')]]
+  if type(req.body)=='string' then
+    ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
+    return ox.write(c, tc(t))
+  else
+    ti(t, '\r\n\r\n')
+    return ox.write(c, tc(t), cb)
+  end
+end
 
+function http.fetch(req, cb)
+  c={req=req, res={jar={},head={}}}
+  return ox.tcpconn(req.host, req.port or 80, function(c)
+    ox.writereq(c)
+    return ox.readres(c, cb)
+  end)
+end
 
 return http

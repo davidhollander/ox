@@ -16,6 +16,8 @@ typedef unsigned short int sa_family_t;
 typedef uint32_t socklen_t;
 typedef uint16_t in_port_t;
 typedef unsigned long nfds_t;
+typedef long ssize_t;
+typedef long off_t;
 ]]
 
 -- structs
@@ -72,6 +74,7 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
   struct addrinfo **res);
 void freeaddrinfo(struct addrinfo *res);
 const char * inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
+ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 ]]
 -- constants
 local F_SETFL = 4
