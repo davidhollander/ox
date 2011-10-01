@@ -80,6 +80,50 @@ local RES_STATUS = {
 -- RENDERING
 --
 
+function http.url_decode(str)
+  if not str then return nil end
+  str = string.gsub (str, "+", " ")
+  str = string.gsub (str, "%%(%x%x)", function(h) return string.char(tonumber(h,16)) end)
+  str = string.gsub (str, "\r\n", "\n")
+  return str
+end
+
+--make sure to leave '.','-','~','_' as is
+--- Encode a url string
+function http.url_encode(str)
+  if not str then return nil end
+  str = string.gsub (str, "\n", "\r\n")
+  str = string.gsub (str, "([^%w%.%-~_ ])",
+        function (c) return string.format ("%%%02X", string.byte(c)) end)
+  str = string.gsub (str, " ", "+")
+  return str
+end
+
+--- Parse query string or form body
+-- @param qstr string
+-- @return table
+function http.qs_decode(qstr)
+  local t={}
+  for k,v in string.gmatch(qstr, "([^&=]+)=([^&=]*)&?") do
+    if #v>0 then t[http.url_decode(k)] = http.url_decode(v)
+    else t[http.url_decode(k)] = true end
+  end
+  return t
+end
+
+--- Encode query string or form body
+-- @param table
+-- @return string
+function http.qs_encode(t)
+  local out={}
+  for k,v in pairs(t) do
+    if v~=true then
+      ti(out, tc{http.url_encode(k),'=',http.url_encode(v)})
+    else ti(t, k) end
+  end
+  return tc(out, '&')
+end
+
 function http.writechunk(c) end
 function http.writechunk_gzip(c) end
 
@@ -244,11 +288,11 @@ end
 --
 
 local function readreq_head(c, line)
-  if not line then return reply(c, 413)
+  if not line then return http.nohead(c, 413)
   elseif line=='' then return c:on_request() end
 
   local key, val = line:match '^([^%s:]+)%s?:%s*(.+)'
-  if not key then return reply(c, 400)
+  if not key then return http.nohead(c, 400)
   elseif key=='Cookie' then
     for k,v in val:gmatch('([^;=%s]+)=([^;=%s]+)') do
       c.req.jar[k]=v
@@ -258,7 +302,7 @@ local function readreq_head(c, line)
 end
  
 local function readreq_status(c, line)
-  if not line then return reply(c, 414) end
+  if not line then return http.nohead(c, 414) end
   local method, path = line:match '(%u+) ([^%s]+) HTTP/1%.%d$'
   if not method or not METHODS[method] then return ox.close(c)
   else c.req.method=method; c.req.path=path; return ox.readln(c, 2048, readreq_head) end

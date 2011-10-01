@@ -100,8 +100,9 @@ local ox = {
   on = false,
   log = print,
   time = os.time(),
-  time_warp = 0,
-  expire = 20,
+  TIME_WARP = 0,
+  TIMEOUT = 20,
+  TIMEOUT_INT=5,
   children = {},
 }
 
@@ -244,12 +245,12 @@ end
 local streambuff = ffi.new 'char[8192]'
 function ox.readln(c, max, cb)
   if c.buffer then
+    --print('readln c.buffer', max, #c.buffer, c.buffer)
     local h = c.buffer:find('\n', c.init, true)
     if h and h<max then
       local line = c.buffer:byte(h-1)==CR and c.buffer:sub(1, h-2) or c.buffer:sub(1, h-1)
       c.buffer = h==#c.buffer and nil or c.buffer:sub(h+1)
       c.init = 1
-      stop_read(c)
       return cb(c, line)
     elseif #c.buffer>max then return cb(c, nil)
     else c.init = #c.buffer end
@@ -258,6 +259,7 @@ function ox.readln(c, max, cb)
     local n = C.read(c.fd, streambuff, 8192)
     if n==-1 then return errno()~=EAGAIN and ox.close(c) end
     c.buffer = c.buffer..ffi.string(streambuff, n)
+    stop_read(c)
     return ox.readln(c, max, cb)
   end)
 end
@@ -534,9 +536,23 @@ function ox.clear()
   collectgarbage 'collect'
 end
 
+function ox.expire()
+  local lazy
+  local cutoff = ox.time - ox.TIMEOUT
+  local old = contexts
+  contexts = {}
+  for i,c in ipairs(old) do
+    if lazy or not c.accept_time then ti(contexts, c)
+    elseif c.accept_time < cutoff then ox.close(c)
+    else lazy=true; ti(contexts, c) end -- we know recently accepted are on top
+  end
+  return ox.at(ox.time + ox.TIMEOUT_INT, ox.expire)
+end
+
 function ox.start(init)
   ox.on = true
   if init then init() end
+  ox.at(ox.time + ox.TIMEOUT_INT, ox.expire)
   while ox.on do
     ox.time = os.time()
     tick()

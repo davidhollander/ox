@@ -1,0 +1,136 @@
+local ox = require 'ox'
+local http = require 'ox.http'
+local nixio = require'nixio','nixio.util'
+local lib = require 'ox.lib'
+
+local host='localhost'
+local PORT = ... or 8890
+local port = PORT
+ox.TIMEOUT_INT = 1
+ox.TIMEOUT = 2
+local timeout=2
+local req_root = 'GET / HTTP/1.1\r\n\r\n'
+local req_quit = 'GET /shutdown HTTP/1.1\r\n\r\n'
+
+print 'This test currently requires the nixio library to be installed!'
+
+tests={}
+function addtest(t)
+  table.insert(tests, t)
+end
+
+addtest {
+  name = "Reply",
+  note = "Send an HTTP request and read response",
+  test = function()
+    local sock,err,m = nixio.connect(host, port)
+    sock:write(req_root)
+    sock:close()
+    return true
+  end
+}
+addtest {
+  name = "Disconnect",
+  note = "Open and immediately close a connection",
+  test = function()
+    local sock,err,m = nixio.connect(host, port)
+    sock:close()
+    return true
+  end
+}
+addtest {
+  name = "Disconnect2",
+  note = "Close connection while sending request",
+  test = function()
+    local mysock,err,m = nixio.connect(host, port)
+    mysock:write('GET ')
+    mysock:close()
+    return true
+  end
+}
+addtest {
+  name = "Send Garbage",
+  note = "Spam server, hopefully getting immediately disconnected",
+  test = function()
+    local mysock, err, m = nixio.connect(host, port)
+    local c = os.time()
+    while true do
+      local n, e, m = mysock:write(tostring(math.random(10e10)))
+      if not n then 
+        break
+      end
+      --print(n)
+    end
+    assert((os.time()-c)<timeout)
+    return true
+  end
+}
+addtest {
+  name = "timeout",
+  note = 'leave connection open without sending anything, hopefully getting expired',
+  test = function()
+    local sock, err, m = nixio.connect(host, port)
+    local n = nixio.poll({{fd=sock, events=nixio.poll_flags('in'),revents=0}},(timeout+2)*1000)
+    assert(n==1)
+    return true
+  end
+}
+addtest {
+  name = "timeout2",
+  note = "leave connection open after sending part of request, hopefully getting expired",
+  test = function()
+    local sock, err, m = nixio.connect(host, port)
+    sock:send('GET')
+    local n = nixio.poll({{fd=sock, events=nixio.poll_flags('in'),revents=0}},(timeout+2)*1000)
+    assert(n==1)
+    return true
+  end
+}
+addtest {
+  name = "nonblocking",
+  note = "open a second connection before writing first to ensure nonblocking",
+  test = function()
+    local sock=nixio.connect(host, port)
+    local sock2=nixio.connect(host, port)
+    sock2:write(req_root)
+    assert(sock2:read(12)=='HTTP/1.1 200')
+    sock2:close()
+    sock:write(req_root)
+    assert(sock:read(12)=='HTTP/1.1 200')
+    sock:close()
+    return true
+  end
+}
+addtest {
+  name = "url_encode and url_decode",
+  note = "",
+  test = function()
+    local str="hello x me = ss?q=23&23age Message /!@#& @("
+    assert(str==http.url_decode(http.url_encode(str)))
+    return true
+  end
+}
+addtest {
+  name = "qs_encode and qs_decode",
+  note = "",
+  test = function()
+    local str="hello x me = ss?q=23&23age Message /!@#& @("
+    local t = http.qs_decode('message='..http.url_encode(str)..'&bool=')
+    assert(t.message==str and t.bool==true)
+    return true
+  end
+}
+
+http.route '*' 'GET' '/' (function(c)
+  return http.reply(c, 200, "Hello")
+end)
+
+print(ox.tcpserv(PORT, http.accept))
+ox.split(1, function() ox.start() end)
+lib.sleep(1)
+for i,t in ipairs(tests) do
+  print(i, t.name, t.note)
+  t.test()
+end
+ox.kill()
+print('pass.')
