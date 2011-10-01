@@ -233,7 +233,6 @@ end
 --
 local on_read, on_write, stop_read, stop_write = ox.on_read, ox.on_write, ox.stop_read, ox.stop_write
 local vla_char = typeof 'char [?]'
-local newbuffer = typeof 'char[8192]'
 
 function ox.close(c)
   C.close(c.fd)
@@ -261,10 +260,12 @@ function ox.readln(c, max, cb)
 end
 
 function ox.read(src, n, cb)
+
 end
 
+local cstr = ffi.typeof 'char *'
 function ox.write(des, str, cn)
-  local buff = vla_char(#str+1, str)
+  local buff = cast(cstr, str)
   local n = 0
   return on_write(des, function()
     local m = C.write(des.fd, buff+n, #str - n)
