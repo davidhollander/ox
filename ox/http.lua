@@ -357,7 +357,7 @@ local function readres_status(c, line)
   if not version then ox.close(c) return c:on_response(false) end
   c.res.version=version
   c.res.status=tonumber(status)
-  return core.readln(c, 2048, readres_head)
+  return ox.readln(c, 2048, readres_head)
 end
 
 function http.readres(c, cn)
@@ -390,18 +390,20 @@ function http.writereq(c, cb)
     return ox.write(c, tc(t), body, '\r\n')]]
   if type(req.body)=='string' then
     ti(t, 'Content-Length: '); ti(t, #body); ti(t, '\r\n\r\n'); ti(t, body); ti(t, '\r\n')
-    return ox.write(c, tc(t))
+    return ox.write(c, tc(t), cb)
   else
     ti(t, '\r\n\r\n')
     return ox.write(c, tc(t), cb)
   end
 end
+function pass() end
 
 function http.fetch(req, cb)
-  c={req=req, res={jar={},head={}}}
   return ox.tcpconn(req.host, req.port or 80, function(c)
-    ox.writereq(c)
-    return ox.readres(c, cb)
+    c.req = req
+    c.res = {jar={},head={}}
+    http.writereq(c, pass)
+    return http.readres(c, cb)
   end)
 end
 

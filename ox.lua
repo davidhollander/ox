@@ -75,11 +75,13 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
 void freeaddrinfo(struct addrinfo *res);
 const char * inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
 ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
+int setsockopt(int s, int level, int optname, const void *optval, socklen_t optlen);
 ]]
 -- constants
 local F_SETFL = 4
 local AF_INET, AF_INET6 = 2, 10
 local SOCK_STREAM, SO_REUSEADDR = 1, 2
+local SOL_SOCKET = 1
 local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
 local EV_IN, EV_OUT = 1, 4
 local EINTER, EAGAIN, EINPROGRESS = 4, 11, 115
@@ -171,6 +173,24 @@ function ox.at(utctime, cb)
   else timers[utctime]={cb} end
   return true
 end; local at = ox.at
+
+function ox.cron(t, fn)
+  local t2 = os.date '*t'
+  if not t.year then
+    if not t.month then
+      if not t.day then
+        if not t.hour then
+          if not t.min then
+            if not t.sec then return nil, 'Table must specify sec, min, hour, day, month, or year'
+            elseif t.sec<t2.sec then t2.min=t2.min+1 end
+          elseif t.min<t2.min then t2.hour=t2.hour+1 end
+        elseif t.hour<t2.hour then t2.day=t2.day+1 end
+      elseif t.day<t2.day then t2.month=t2.month+1 end
+    elseif t.month<t2.month then t2.year=t2.year+1 end
+  end
+  for k,v in pairs(t) do t2[k]=v end
+  return ox.at(os.time(t2), fn)
+end
 
 local function tick()
   if timers[ox.time] then
@@ -316,6 +336,12 @@ function ox.tcpserv(port, cn)
 
   local s = C.socket(AF_INET6, SOCK_STREAM+SOCK_NONBLOCK, 0)
   if s==-1 then return nil, 'could not create socket: '..errno() end
+
+  local opt = ffi.new 'int[1]'
+  opt[0]=1
+  if C.setsockopt(s, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(opt))==-1 then
+    return nil, 'Could not setsockopt', errno() end
+
   local myaddr = cast('struct sockaddr *', ip6addr)
   local i = C.bind(s, myaddr, sizeof(ip6addr))
   if i==-1 then return nil, 'could not bind: '..errno() end
