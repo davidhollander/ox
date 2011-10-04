@@ -39,6 +39,10 @@ struct sockaddr_in6 {
   struct in6_addr sin6_addr;
   uint32_t sin6_scope_id;
 };
+struct sockaddr_un {
+  sa_family_t sun_family;
+  char sun_path[108];
+}
 struct addrinfo{
   int ai_flags;
   int ai_family;
@@ -79,7 +83,7 @@ int setsockopt(int s, int level, int optname, const void *optval, socklen_t optl
 ]]
 -- constants
 local F_SETFL = 4
-local AF_INET, AF_INET6 = 2, 10
+local AF_UNIX, AF_INET, AF_INET6 = 1, 2, 10
 local SOCK_STREAM, SO_REUSEADDR = 1, 2
 local SOL_SOCKET = 1
 local O_NONBLOCK, SOCK_NONBLOCK = 2048, 2048
@@ -330,6 +334,39 @@ local function tcp_accept(s)
   end
 end
 
+function ox.unixserv(file, cn)
+  local addr = ffi.new('struct sockaddr_un', {sun_family=AF_UNIX,sun_path=file})
+  local s = C.socket(AF_UNIX, SOCK_STREAM+SOCK_NONBLOCK, 0)   
+  if s==-1 then return nil, 'could not create socket' end
+
+  --local opt = ffi.new('int[1]',1)
+  --if C.setsockopt(s, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(opt))==-1 then
+    --return nil, 'Could not setsockopt: '..errno() end
+
+  local myaddr = cast('struct sockaddr *', addr)
+  local i = C.bind(s, myaddr, sizeof(addr))
+  if i==-1 then return nil, 'Could not bind: '..errno() end
+  local i = C.listen(s, 1024) 
+  if i==-1 then return nil, 'Could not listen: '..errno() end
+
+  local c = {fd = s, events = EV_IN, revents = 0, on_read = tcp_accept, on_accept = cn}
+  ti(contexts, c)
+  return true
+end
+
+function ox.unixconn(file, cb)
+  local addr = ffi.new('struct sockaddr_un', {sun_family=AF_UNIX,sun_path=file})
+  local myaddr = cast('struct sockaddr *', addr)
+  local fd = C.socket(AF_UNIX, SOCK_STREAM+SOCK_NONBLOCK, 0)   
+  if fd==-1 then return nil, 'Could not create socket' end
+  if C.connect(fd, myaddr, sizeof(addr))==-1 then return nil, 'Could not connect' end
+  if C.fcntl(fd, F_SETFL, O_NONBLOCK)==-1 then return nil, 'Could not set nonblock' end
+  local c = {fd = fd, events=0, revents = 0}
+  ti(contexts, c)
+  return cb(c)
+end
+
+
 function ox.tcpserv(port, cn)
   local ip6addr = new 'struct sockaddr_in6'
   ip6addr.sin6_family = AF_INET6
@@ -354,7 +391,6 @@ function ox.tcpserv(port, cn)
   if i==-1 then return nil, 'Could not listen: '..errno() end
 
   local c = {fd = s, events = EV_IN, revents = 0, on_read = tcp_accept, on_accept = cn}
-
   ti(contexts, c)
   return true
 end
@@ -436,10 +472,6 @@ function ox.tcpconn(address, port, cb)
   local c = {fd = fd, events=0, revents = 0}
   ti(contexts, c)
   return cb(c)
-end
-function ox.unixserv(file, cb)
-end
-function ox.unixconn(file, cb)
 end
 
 
