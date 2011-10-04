@@ -127,6 +127,19 @@ end
 function http.writechunk(c) end
 function http.writechunk_gzip(c) end
 
+local httpmt = {
+  write = function(c, ...)
+    for _,v in ipairs(...) do ti(c.out, v) end
+  end,
+  writef = function(c, ptrn, ...)
+    ti(c.out, string.format(ptrn, ...))
+  end,
+  flush = function(c, cb)
+    return ox.write(c, tc(c.out))
+  end
+}
+
+
 function http.stream(c)
   local chunk = c.body_source()
   if not chunk then return ox.write(c, '\r\n', ox.close)
@@ -261,7 +274,8 @@ end
 
 function http.readbody(c, max, maxparts, cb)
   c.body_max = max
-  local head = (c.req or c.res).head
+  c.on_body = cb
+  local head = c.res and c.res.status and c.res.head or c.req.head
   local te = head['Transfer-Encoding']
   local cl = head['Content-Length']
   local ct = head['Content-Type']
@@ -275,10 +289,6 @@ function http.readbody(c, max, maxparts, cb)
   elseif cl and cl<max then
     return ox.read(c, max, readbody_all)
   end
-end
-
-function http.readbody_mp(c, max, maxparts, cb)
-  
 end
 
 function http.transferbody(c, max, maxfiles, cb)
@@ -396,13 +406,12 @@ function http.writereq(c, cb)
     return ox.write(c, tc(t), cb)
   end
 end
-function pass() end
 
 function http.fetch(req, cb)
   return ox.tcpconn(req.host, req.port or 80, function(c)
     c.req = req
     c.res = {jar={},head={}}
-    http.writereq(c, pass)
+    http.writereq(c, ox.pass)
     return http.readres(c, cb)
   end)
 end

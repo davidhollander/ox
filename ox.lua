@@ -108,6 +108,8 @@ local ox = {
   children = {},
 }
 
+function ox.pass() end
+
 function ox.logfile(name)
   local f = io.open(name, 'a+')
   function ox.log(...)
@@ -284,8 +286,10 @@ function ox.readln(c, max, cb)
   end)
 end
 
-function ox.read(src, n, cb)
-
+function ox.read(c, n, cb)
+  return ox.on_read(c, function(c)
+    local n = C.read(c, streambuff, n)
+  end)
 end
 
 local cstr = ffi.typeof 'char *'
