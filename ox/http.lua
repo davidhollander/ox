@@ -124,9 +124,6 @@ function http.qs_encode(t)
   return tc(out, '&')
 end
 
-function http.writechunk(c) end
-function http.writechunk_gzip(c) end
-
 local httpmt = {
   write = function(c, ...)
     for _,v in ipairs(...) do ti(c.out, v) end
@@ -135,22 +132,18 @@ local httpmt = {
     ti(c.out, string.format(ptrn, ...))
   end,
   flush = function(c, cb)
-    return ox.write(c, tc(c.out))
+    return ox.write(c, tc(c.out), cb)
   end
 }
-
-
-function http.stream(c)
-  local chunk = c.body_source()
-  if not chunk then return ox.write(c, '\r\n', ox.close)
-  else return ox.write(c, chunk, http.stream) end
-end
 
 function http.close(c)
   return ox.write(c, '\r\n', ox.close)
 end
+function http.nohead(c, status, body)
+  return ox.write(c, tc{RES_STATUS[status],'\r\n',body or '','\r\n'}, ox.close)
+end
 
-function http.writehead(c, cb)
+function http.writeres_head(c, cb)
   local s = RES_STATUS[status]
   if not s then assert(s, 'Bad status: '..status) end
   local t = {s}
@@ -160,11 +153,8 @@ function http.writehead(c, cb)
   for k,v in pairs(c.res.jar or {}) do
     ti(t, 'Set-Cookie: ') ti(t, k); ti(t, '='); ti(t, v); ti(t, '\r\n')
   end
+  ti(t, '\r\n')
   return ox.write(c, tc(t), cb)
-end
-
-function http.nohead(c, status, body)
-  return ox.write(c, tc{RES_STATUS[status],'\r\n',body or '','\r\n'}, ox.close)
 end
 
 function http.reply(c, status, body)
@@ -177,23 +167,12 @@ function http.reply(c, status, body)
   for k,v in pairs(c.res.jar or {}) do
     ti(t, 'Set-Cookie: ') ti(t, k); ti(t, '='); ti(t, v); ti(t, '\r\n')
   end
-  if type(body)=='function' then
-    c.body_source=body
-    if not c.res.head['Content-Length'] then
-      ti(t, 'Transfer-Encoding: chunked\r\n')
-    end
-    ti(t, '\r\n')
-    return ox.write(c, tc(t), ox.stream)
-  elseif type(body)=='string' then
+  local cl = c.req.head['Content-Length']
+  if body and type(body)=='string' then
     ti(t, 'Content-Length: ') ti(t, #body) ti(t, '\r\n\r\n') ti(t, body) ti(t, '\r\n')
     return ox.write(c, tc(t), ox.close)
-  else return ox.write(c, tc(t), ox.close) end
-end
-
-function http.transfer(c, status, src)
-end
-
-function http.stream(c, status, src)
+  end
+  return ox.write(c, tc(t), ox.close)
 end
 
 -- ROUTES
@@ -236,19 +215,33 @@ local function readbody_chunk(c, chunk)
   else ti(c.body, chunk) end
   return ox.read(c, 2, readbody_chunklen)
 end
-
 local function readbody_chunklen(c, len)
-  local n = tonumber(len, 16)
-  if n == 0 then
+  if len == '' then
     c.body = tc(c.body)
     return c:on_body(true)
-  elseif c.body_len+n>c.body_max then return c:on_body(false)
+  end
+  local n = tonumber(len, 16)
+  if c.body_len+n>c.body_max then return c.on_body(false)
   else
     c.body_len = c.body_len + n
     return ox.read(c, n, readbody_chunk)
   end
 end
 
+local function transfer_chunk(des, src)
+end
+local function transfer_chunklen(c, len)
+  if len == '' then return c:on_body() end
+  local n = tonumber(len, 16)
+  if c.body_len + n>c.body_max then return c.on_body(false)
+  else
+    c.body_len = c.body_len + n
+    return ox.transfer(f, c, n, transfer_chunk)
+  end
+end
+
+
+-- multipart
 local function readbody_part(c, line)
   if line==c.bdr then return ox.readln(c, 1024, readbody_parthead)
   else
@@ -272,6 +265,7 @@ local function readbody_boundary(c, line)
   end
 end
 
+--readbody
 function http.readbody(c, max, maxparts, cb)
   c.body_max = max
   c.on_body = cb
@@ -285,14 +279,32 @@ function http.readbody(c, max, maxparts, cb)
     c.body_maxparts = maxparts
     return ox.readln(c, 2048, readbody_boundary)
   elseif te and te:match 'chunked' then
-    return ox.readln(c, 2, readbody_chunklen)
+    return ox.readln(c, 4, readbody_chunklen)
   elseif cl and cl<max then
     return ox.read(c, max, readbody_all)
   end
 end
 
+--[[
 function http.transferbody(c, max, maxfiles, cb)
-end
+  c.body_max = max
+  c.on_body = cb
+  local head = c.res and c.res.status and c.res.head or c.req.head
+  local te = head['Transfer-Encoding']
+  local cl = head['Content-Length']
+  local ct = head['Content-Type']
+  local boundary = ct and ct:match 'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
+  if boundary then
+    c.bdr = boundary
+    c.body_maxparts = maxparts
+    return ox.readln(c, 2048, readbody_boundary)
+  elseif te and te:match 'chunked' then
+    return ox.readln(c, 4, readbody_chunklen)
+  elseif cl and cl<max then
+    return ox.read(c, max, readbody_all)
+  end
+end]]
+
 
 -- SERVER
 --
@@ -325,7 +337,7 @@ function http.readreq(c, cb)
   return ox.readln(c, 2048, readreq_status)
 end
 
---
+-- FILE SERVING
 --
 function http.folder(dir)
   local dir=dir:match('^(.+)/?$')
@@ -339,12 +351,11 @@ function http.folder(dir)
     local stats = f:stat()
     rh['Last-Modified']=http.datetime(stats.mtime)
     rh['Content-Length']= stats.size
-    c:reply(200, source_file(f))
+    http.writehead(c, function(c)
+      return ox.transfer(c, f, stats.size, http.close)
+    end)
   end
 end
-
-
-
 
 -- CLIENT
 --
