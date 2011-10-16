@@ -45,7 +45,8 @@ dumptype = {
       end
       ti(out, ',')
     end
-    out[mmax(#out,2)]='}'
+    ti(out, '}')
+    --out[mmax(#out,2)]='}'
   end,
   string = function(out, k) return ti(out, ('%q'):format(k)) end,
   number = function(out, k) return ti(out, k) end,
