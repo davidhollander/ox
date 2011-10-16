@@ -9,7 +9,9 @@ local l2 = tbl.values(t)
 assert(l2[1]+l2[2] == 8)
 
 local t = {'helloworld',foo='bar',baz=5,[{foo='bar'}]={bar='baz'}}
-local t2 = tbl.load(tbl.dump(t))
+local str = tbl.dump(t)
+print(str)
+local t2 = tbl.load(str)
 
 local n = 0
 for k,v in pairs(t) do
@@ -25,5 +27,10 @@ assert(n==4)
 
 assert(#{tbl.unpackn({},{},{})} == 0)
 assert(#{tbl.unpackn({1,2},{3},{4,5,6,7})} == 7)
+
+local str = tbl.dump {{},{},{}}
+print(str)
+local t = tbl.load(str)
+assert(#t==3)
 
 print 'pass'

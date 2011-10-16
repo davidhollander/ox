@@ -38,15 +38,23 @@ local dumptype
 dumptype = {
   table = function(out, t)
     ti(out, '{')
+    local i,num = 0, true
     for k,v in pairs(t) do
-      local fk, fv = dumptype[type(k)], dumptype[type(v)]
-      if fk and fv then
-        ti(out, '['); fk(out, k); ti(out, ']='); fv(out, v)
+      i=i+1
+      if k==i and num then
+        local fv = dumptype[type(v)]
+        if fv then fv(out, v); ti(out, ',')
+        else num=false end
+      else
+        local fk, fv = dumptype[type(k)], dumptype[type(v)]
+        if fk and fv then
+          ti(out, '['); fk(out, k); ti(out, ']='); fv(out, v)
+        end
+        ti(out, ',')
       end
-      ti(out, ',')
     end
-    ti(out, '}')
-    --out[mmax(#out,2)]='}'
+    if i>0 then out[#out]='}'
+    else ti(out, '}') end
   end,
   string = function(out, k) return ti(out, ('%q'):format(k)) end,
   number = function(out, k) return ti(out, k) end,
