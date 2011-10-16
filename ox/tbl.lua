@@ -28,12 +28,12 @@ function tbl.values(t)
 end
 
 local _env = {}
+--- Load a previously serialized lua table.
 function tbl.load(str)
   local f = loadstring('return '..str)
   return f and setfenv(f,_env)()
 end
 
-local mmax = math.max
 local dumptype
 dumptype = {
   table = function(out, t)
@@ -60,6 +60,7 @@ dumptype = {
   number = function(out, k) return ti(out, k) end,
 }
 
+--- Serialize a lua table. Only copies keys or values of type table, number, string.
 function tbl.dump(i)
   local out = {}
   local fn = dumptype[type(i)]
