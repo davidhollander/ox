@@ -63,7 +63,7 @@ int chdir(const char *path);
 mode_t umask(mode_t mask);
 int close(int fd);
 int read(int fd, char * buffer, int n);
-int write(int fd, char * buffer, int n);
+int write(int fd, const char * buffer, int n);
 int socket(int domain, int type, int protocol);
 int inet_pton(int af, const char *src, void *dst);
 int bind(int sockfd, const struct sockaddr *myaddr, socklen_t addrlen);
@@ -233,32 +233,6 @@ function ox.stop_write(des)
   des.events = band(des.events, maskout)
 end; local stop_write = ox.stop_write
 
-function ox.on_transfer(des, src, cb)
-  src.events = bxor(src.events, EV_IN)
-  des.events = bxor(des.events, EV_OUT)
-  src.on_transfer = cb
-  des.on_transfer = cb
-  local on_read, on_write  = false, false
-  function src.on_read()
-    if on_write then
-      des.events = bxor(des.events, maskout)
-      return cb(des, src)
-    else
-      on_read = true
-      src.events = band(src.events, maskin)
-    end
-  end
-  function des.on_write()
-    if on_read then
-      src.events = bxor(des.events, maskin)
-      return cb(des, src)
-    else
-      on_write = true
-      des.events = band(des.events, maskout)
-    end
-  end
-end
-
 -- AIO
 --
 local on_read, on_write, stop_read, stop_write = ox.on_read, ox.on_write, ox.stop_read, ox.stop_write
@@ -296,21 +270,36 @@ function ox.read(c, n, cb)
   end)
 end
 
-local cstr = ffi.typeof 'char *'
-function ox.write(des, str, cn)
-  local buff = cast(cstr, str)
-  local n = 0
-  return on_write(des, function()
-    local m = C.write(des.fd, buff+n, #str - n)
-    if m==-1 then return errno()~=EAGAIN and ox.close(des) end
-    n = n + m
-    if n>=#str then
-      stop_write(des)
-      return cn(des)
-    end
+function ox.write(c, str, cb)
+  local n, len = 0, #str
+  return on_write(c, function()
+    local i = C.write(c.fd, buff+n, len-n)
+    if i==-1 then return errno()~=EAGAIN and ox.close(c)
+    elseif n+i < len then n = n + m
+    else stop_write(c); return cn(c) end
   end)
 end
-function ox.transfer(des, src, n, cb)
+
+function ox.open(file, mode)
+  local flags = mode == 'r' and C.O_RDONLY or mode=='w' and C.O_WRONLY or mode=='rw' and C.O_RDWR
+  if not flags then return nil, 'Bad mode: r, w, rw'
+  local fd = C.open(file, mode)
+  if fd==-1 then return nil, 'Could not open'
+  else return {fd = fd} end
+end
+function ox.fsync(c)
+
+end
+
+
+function ox.sendfile(file, des, offset, len, cb)
+  local n = 0
+  return on_write(c, function()
+    local i = C.sendfile(des.fd, file.fd, offset, len)
+    if i==-1 then return errno()~=EAGAIN and ox.close(c)
+    elseif n+i<len then n = n+i
+    else return cb(c) end
+  end)
 end
 
 -- TRANSPORT
@@ -338,10 +327,6 @@ function ox.unixserv(file, cn)
   local addr = ffi.new('struct sockaddr_un', {sun_family=AF_UNIX,sun_path=file})
   local s = C.socket(AF_UNIX, SOCK_STREAM+SOCK_NONBLOCK, 0)   
   if s==-1 then return nil, 'could not create socket' end
-
-  --local opt = ffi.new('int[1]',1)
-  --if C.setsockopt(s, SOL_SOCKET, SO_REUSEADDR, opt, sizeof(opt))==-1 then
-    --return nil, 'Could not setsockopt: '..errno() end
 
   local myaddr = cast('struct sockaddr *', addr)
   local i = C.bind(s, myaddr, sizeof(addr))
@@ -372,7 +357,6 @@ function ox.tcpserv(port, cn)
   ip6addr.sin6_family = AF_INET6
   ip6addr.sin6_port = netorder(port)
   ip6addr.sin6_scope_id = 0
-  --ip6addr.sin6_addr = LOOPBACK
   ffi.copy(ip6addr.sin6_addr, LOOPBACK, sizeof(LOOPBACK))
 
   local s = C.socket(AF_INET6, SOCK_STREAM+SOCK_NONBLOCK, 0)
@@ -624,7 +608,6 @@ function ox.start(init)
       contexts = {}
       for i=0, #old -1 do
         local c = old[i+1]
-        --print(c, fds[i].revents)
         if bcheck(fds[i].revents, EV_IN) then c:on_read() end
         if not c.closed and bcheck(fds[i].revents, EV_OUT) then c:on_write() end
         if not c.closed then ti(contexts, c) end

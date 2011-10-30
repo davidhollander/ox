@@ -228,56 +228,68 @@ local function readbody_chunklen(c, len)
   end
 end
 
-local function transfer_chunk(des, src)
-end
-local function transfer_chunklen(c, len)
-  if len == '' then return c:on_body() end
-  local n = tonumber(len, 16)
-  if c.body_len + n>c.body_max then return c.on_body(false)
-  else
-    c.body_len = c.body_len + n
-    return ox.transfer(f, c, n, transfer_chunk)
-  end
-end
+
+-- MULTIPART
+
+-- meh more garbage collection
+-- request keys: method, path, length, multipart, 
 
 
--- multipart
-local function readbody_part(c, line)
-  if line==c.bdr then return ox.readln(c, 1024, readbody_parthead)
+-- reading
+local mpart_bdr = setmetatable({},{__mode='k'})
+local mpart_cb = setmetatable({},{__mode='k'})
+
+function http.readpart(c, max, cb)
+  local t = (c.req or c.res)
+  local ct = t and t.head['Content-Type']
+  local bdr = ct and ct:match 'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
+  if not bdr then return cb(c) end
+  c.on_part = cb
+  c.max = max
+  c.boundary = bdr
+  return ox.readln(c, 2048, readbody_boundary)
+end
+
+local function readpart_boundary(c, line)
+  if line==c.boundary then
+    c.part = {}
+    return ox.readln(c, 1024, readpart_head)
+  else return c:on_part() end
+end
+
+local function readpart_head(c, line)
+  if line=='' then ox.readln(c, c.body_max, readpart) end
+  local key, val = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
+  if key then c.part[key] = val end
+  return ox.readln(c, 1024, readbody_parthead)
+end
+
+local function readpart(c, line)
+  if line==c.boundary then return ox.readln(c, 1024, readbody_parthead)
   else
     ti(c.part, line)
     return ox.readln(c, c.body_max, readbody_part)
   end
 end
 
-local function readbody_parthead(c, line)
-  if line=='' then ox.readln(c, c.body_max, readbody_part) end
-  local key, val = line:match('^([%w_%-])+ ?: ?([%w_%-]+)$')
-  if key then c.part[key] = val end
-  return ox.readln(c, 1024, readbody_parthead)
-end
+-- writing
 
-local function readbody_boundary(c, line)
-  if line==c.bdr then
-    c.part = {}
-    ti(c.data, c.part)
-    return ox.readln(c, 1024, readbody_parthead)
+function http.writepart(c, head, body, cb)
+  if not c.boundary then c.boundary = ('----%x'):format(math.random(1e6))
   end
 end
 
---readbody
-function http.readbody(c, max, maxparts, cb)
+
+
+
+--HTTP BODY
+function http.readbody(c, max, cb)
   c.body_max = max
   c.on_body = cb
   local head = c.res and c.res.status and c.res.head or c.req.head
   local te = head['Transfer-Encoding']
   local cl = head['Content-Length']
   local ct = head['Content-Type']
-  local boundary = ct and ct:match 'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
-  if boundary then
-    c.bdr = boundary
-    c.body_maxparts = maxparts
-    return ox.readln(c, 2048, readbody_boundary)
   elseif te and te:match 'chunked' then
     return ox.readln(c, 4, readbody_chunklen)
   elseif cl and cl<max then
@@ -285,25 +297,6 @@ function http.readbody(c, max, maxparts, cb)
   end
 end
 
---[[
-function http.transferbody(c, max, maxfiles, cb)
-  c.body_max = max
-  c.on_body = cb
-  local head = c.res and c.res.status and c.res.head or c.req.head
-  local te = head['Transfer-Encoding']
-  local cl = head['Content-Length']
-  local ct = head['Content-Type']
-  local boundary = ct and ct:match 'multipart/form-data;%s?boundary%s?=%s?([^%s]+)'
-  if boundary then
-    c.bdr = boundary
-    c.body_maxparts = maxparts
-    return ox.readln(c, 2048, readbody_boundary)
-  elseif te and te:match 'chunked' then
-    return ox.readln(c, 4, readbody_chunklen)
-  elseif cl and cl<max then
-    return ox.read(c, max, readbody_all)
-  end
-end]]
 
 
 -- SERVER
@@ -330,31 +323,11 @@ local function readreq_status(c, line)
   else c.req.method=method; c.req.path=path; return ox.readln(c, 2048, readreq_head) end
 end
 
-
+--- Set c.req
 function http.readreq(c, cb)
   c.on_request = cb
   c.req={head={},jar={}}
   return ox.readln(c, 2048, readreq_status)
-end
-
--- FILE SERVING
---
-function http.folder(dir)
-  local dir=dir:match('^(.+)/?$')
-  return function(c, path)
-    local rh=c.res.head
-    local f = not path:match('%.%.') and ox.open(dir..'/'..path)
-    if not f then return http.nohead(c, 404, 'Invalid path') end
-    local ext = path:match('%.(%w+)$')
-    local mime = mime_types[ext] or 'application/octet-stream'
-    rh['Content-Type'] = mime
-    local stats = f:stat()
-    rh['Last-Modified']=http.datetime(stats.mtime)
-    rh['Content-Length']= stats.size
-    http.writehead(c, function(c)
-      return ox.transfer(c, f, stats.size, http.close)
-    end)
-  end
 end
 
 -- CLIENT
@@ -386,6 +359,9 @@ function http.readres(c, cn)
   c.res = {head={},jar={}}
   return ox.readln(c, 2048, readres_status)
 end
+
+--req.multipart --> generate boundary
+--req.length --> known length, if not set will used chunked encoding
 
 function http.writereq(c, cb)
   local req = c.req
