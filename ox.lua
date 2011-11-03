@@ -271,18 +271,19 @@ function ox.read(c, n, cb)
 end
 
 function ox.write(c, str, cb)
+  local buff = ffi.cast('char *', str)
   local n, len = 0, #str
   return on_write(c, function()
     local i = C.write(c.fd, buff+n, len-n)
     if i==-1 then return errno()~=EAGAIN and ox.close(c)
     elseif n+i < len then n = n + m
-    else stop_write(c); return cn(c) end
+    else stop_write(c); return cb(c) end
   end)
 end
 
 function ox.open(file, mode)
   local flags = mode == 'r' and C.O_RDONLY or mode=='w' and C.O_WRONLY or mode=='rw' and C.O_RDWR
-  if not flags then return nil, 'Bad mode: r, w, rw'
+  if not flags then return nil, 'Bad mode: r, w, rw' end
   local fd = C.open(file, mode)
   if fd==-1 then return nil, 'Could not open'
   else return {fd = fd} end

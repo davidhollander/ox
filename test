@@ -7,7 +7,7 @@ local tests = {
   'tests/tcpconn.lua',
   --'tests/ox1.lua',
   --'tests/poll.lua',
-  'tests/tcp.lua',
+  --'tests/tcp.lua',
   'tests/tcp2.lua',
   'tests/tcp3.lua',
 }
