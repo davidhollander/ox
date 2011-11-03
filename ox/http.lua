@@ -282,7 +282,7 @@ end
 
 
 
---HTTP BODY
+--[[HTTP BODY
 function http.readbody(c, max, cb)
   c.body_max = max
   c.on_body = cb
@@ -295,7 +295,7 @@ function http.readbody(c, max, cb)
   elseif cl and cl<max then
     return ox.read(c, max, readbody_all)
   end
-end
+end]]
 
 
 
